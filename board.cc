@@ -3,15 +3,71 @@
 #include <format>
 #include <iostream>
 #include <utility>
+#include <vector>
 
-void Board::drop(std::size_t column) {
-  for (std::size_t row = 0; row < 6; ++row) {
-    if (get_value(row, column) == 0) {
-      set_value(row, column, whose_turn_);
-      break;
+void Board::set_value(std::size_t row, std::size_t col, uint8_t value) {
+  assert(row < kNumRows);
+  assert(col < kNumCols);
+  const std::size_t index = row * kNumCols + col;
+  assert(index < kNumValues);
+
+  const std::size_t byte_index = index / kValuesPerByte;
+  const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
+  data_[byte_index] &= ~(0b11 << bit_offset);           // Clear existing bits
+  data_[byte_index] |= ((value & 0b11) << bit_offset);  // Set new value
+}
+
+std::uint8_t Board::get_value(std::size_t row, std::size_t col) const {
+  assert(row < kNumRows);
+  assert(col < kNumCols);
+  const std::size_t index = row * kNumCols + col;
+  assert(index < kNumValues);
+
+  const std::size_t byte_index = index / kValuesPerByte;
+  const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
+  const std::uint8_t result = (data_[byte_index] >> bit_offset) & 0b11;
+  return result;
+}
+
+std::vector<std::size_t> Board::legal_moves() const {
+  std::vector<std::size_t> result;
+  result.reserve(kNumCols);
+  for (std::size_t col = 0; col < kNumCols; ++col) {
+    if (get_value(kNumRows - 1, col) == 0) {
+      result.push_back(col);
     }
   }
-  whose_turn_ = 3 - whose_turn_;
+  return result;
+}
+
+void Board::drop(std::size_t column) {
+  for (std::size_t row = 0; row < kNumRows; ++row) {
+    if (get_value(row, column) == 0) {
+      set_value(row, column, whose_turn_);
+      whose_turn_ = 3 - whose_turn_;
+      return;
+    }
+  }
+  assert(false);
+}
+
+void Board::push(std::size_t column) {
+  for (std::size_t row = 0; row < kNumRows; ++row) {
+    if (get_value(row, column) == 0) {
+      set_value(row, column, whose_turn_);
+      stack_.emplace_back(row, column);
+      whose_turn_ = 3 - whose_turn_;
+      return;
+    }
+  }
+  assert(false);
+}
+
+void Board::pop() {
+  assert(!stack_.empty());
+  const auto [row, col] = stack_.back();
+  set_value(row, col, 0);
+  stack_.pop_back();
 }
 
 void Board::combos(

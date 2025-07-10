@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <utility>
+#include <vector>
 
 class Board {
  public:
@@ -16,36 +17,34 @@ class Board {
   //    1 (occupied by Player 1),
   // or 2 (occupied by Player 2).
 
+  static constexpr std::size_t kNumRows = 6;
+  static constexpr std::size_t kNumCols = 7;
+
   Board() { clear(); }
 
-  void set_value(std::size_t row, std::size_t col, uint8_t value) {
-    assert(row < 6);
-    assert(col < 7);
-    const std::size_t index = row * 7 + col;
-    assert(index < kNumValues);
+  Board(const Board&) = default;
+  Board& operator=(const Board&) = default;
 
-    const std::size_t byte_index = index / kValuesPerByte;
-    const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
-    data_[byte_index] &= ~(0b11 << bit_offset);           // Clear existing bits
-    data_[byte_index] |= ((value & 0b11) << bit_offset);  // Set new value
+  // Just compares the values of the squares.
+  friend bool operator==(const Board& lhs, const Board& rhs) {
+    return lhs.data_ == rhs.data_;
   }
 
-  std::uint8_t get_value(std::size_t row, std::size_t col) const {
-    assert(row < 6);
-    assert(col < 7);
-    const std::size_t index = row * 7 + col;
-    assert(index < kNumValues);
+  // Set and Get functions.
+  void set_value(std::size_t row, std::size_t col, uint8_t value);
+  std::uint8_t get_value(std::size_t row, std::size_t col) const;
 
-    const std::size_t byte_index = index / kValuesPerByte;
-    const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
-    const std::uint8_t result = (data_[byte_index] >> bit_offset) & 0b11;
-    return result;
-  }
+  // Returns the columns where drop and push are valid.
+  std::vector<std::size_t> legal_moves() const;
 
   void drop(std::size_t column);
 
+  void push(std::size_t column);
+  void pop();
+
   void clear() {
     std::fill(data_.begin(), data_.end(), 0);
+    stack_.clear();
     whose_turn_ = 1;
   }
 
@@ -66,12 +65,13 @@ class Board {
       std::function<void(Coord a, Coord b, Coord c, Coord d)> visit);
 
  private:
-  static constexpr std::size_t kNumValues = 42;
+  static constexpr std::size_t kNumValues = kNumRows * kNumCols;
   static constexpr std::size_t kBitsPerValue = 2;
   static constexpr std::size_t kValuesPerByte = 8 / kBitsPerValue;
   static constexpr std::size_t kNumBytes =
       (kNumValues + kValuesPerByte - 1) / kValuesPerByte;
 
   std::array<uint8_t, kNumBytes> data_;
+  std::vector<Coord> stack_;
   uint8_t whose_turn_ = 1;
 };

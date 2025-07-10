@@ -308,6 +308,34 @@ TEST_F(ParseTest, Parse8) {
       2, 9);
 };
 
+TEST(Game, PushPop) {
+  Board b;
+  b.push(5);
+  b.push(3);
+  b.push(1);
+  EXPECT_EQ(b.legal_moves().size(), Board::kNumCols);
+  const Board save(b);
+  b.push(3);
+  b.push(6);
+  b.push(2);
+  b.pop();
+  b.pop();
+  b.pop();
+  EXPECT_TRUE(b == save);
+}
+
+TEST(Game, LegaMoves) {
+  Board b;
+  for (std::size_t i = 0; i < Board::kNumRows; ++i) {
+    b.push(1);
+    b.push(3);
+    b.push(5);
+  }
+
+  const std::vector<std::size_t> expected{0, 2, 4, 6};
+  EXPECT_EQ(b.legal_moves(), expected);
+}
+
 TEST(Game, Eval) {
   const std::vector<std::tuple<std::string, std::uint8_t, std::uint8_t>> data =
       {
