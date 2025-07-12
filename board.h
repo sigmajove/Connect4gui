@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,13 @@ class Board {
 
   Board(const Board&) = default;
   Board& operator=(const Board&) = default;
+
+  void set_favorite(uint8_t player) {
+    assert(player == 1 || player == 2);
+    favorite_ = player;
+  }
+
+  uint8_t favorite() const { return favorite_; }
 
   // Just compares the values of the squares.
   friend bool operator==(const Board& lhs, const Board& rhs) {
@@ -48,15 +56,21 @@ class Board {
     whose_turn_ = 1;
   }
 
+  // Returns 0 if the game can continue
+  // Returns 1 if player 1 has won.
+  // Returns 2 if player 2 has won.
+  // Returns 3 if nobody can win.
+  std::uint8_t game_over() const;
+
   // Estimate the desirability of the board from the point of view
-  // of the named player.
+  // of the favorite().
   // Score 1000 points if the player has four in a row.
   // Score -1000 points if the opponent has four in a row.
   // For each combo with only player's tokens, score 1, 2, or 3
   // points depending on the number of tokens.
   // For each combo with only the opponent's tokens, score -1, -2, or -3,
   // depending on the number of tokens.
-  int heuristic(std::uint8_t player) const;
+  int heuristic() const;
 
   using Coord = std::pair<std::size_t, std::size_t>;
 
@@ -64,7 +78,24 @@ class Board {
   static void combos(
       std::function<void(Coord a, Coord b, Coord c, Coord d)> visit);
 
+  // Uses alpha-beta-minimax to find the best possible move using the
+  // search depth.
+  std::size_t find_move(std::size_t depth);
+
+  // For debugging.
+  std::pair<int, std::vector<std::size_t>> alpha_beta_trace(std::size_t depth,
+                                                            int alpha, int beta,
+                                                            bool maximizing);
+
+  // Returns a string representation of the board.
+  std::string image() const;
+
  private:
+  // The recursive function that performs alpha-beta minimax restricted
+  // to the given depth.
+  int alpha_beta_helper(std::size_t depth, int alpha, int beta,
+                        bool maximizing);
+
   static constexpr std::size_t kNumValues = kNumRows * kNumCols;
   static constexpr std::size_t kBitsPerValue = 2;
   static constexpr std::size_t kValuesPerByte = 8 / kBitsPerValue;
@@ -74,4 +105,7 @@ class Board {
   std::array<uint8_t, kNumBytes> data_;
   std::vector<Coord> stack_;
   uint8_t whose_turn_ = 1;
+
+  // The payer we want to win.
+  uint8_t favorite_ = 1;
 };

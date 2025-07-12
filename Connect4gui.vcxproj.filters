@@ -60,8 +60,5 @@
     <Image Include="yellow_circle.bmp">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="bitmap1.bmp">
-      <Filter>Resource Files</Filter>
-    </Image>
   </ItemGroup>
 </Project>

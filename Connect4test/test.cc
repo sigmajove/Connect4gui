@@ -373,10 +373,12 @@ TEST(Game, Eval) {
 class HeurTest : public testing::Test {
  protected:
   static void test(const std::string &image, int expected) {
-    const Board board = parse(image);
-    const int actual = board.heuristic(1);
+    Board board = parse(image);
+    board.set_favorite(1);
+    const int actual = board.heuristic();
     EXPECT_EQ(actual, expected);
-    EXPECT_EQ(-actual, board.heuristic(2));
+    board.set_favorite(2);
+    EXPECT_EQ(-actual, board.heuristic());
   }
 };
 
@@ -443,4 +445,35 @@ TEST_F(HeurTest, Heur5) {
 ..212..
 )",
       1000);
+}
+
+TEST(Eval, Empty) {
+  Board b;
+  // The first move on an empty board should be the center column.
+  // This should not be rocket science.
+  EXPECT_EQ(b.find_move(/*depth=*/5), 1);  // ??
+}
+
+TEST(Eval, ForTheWin) {
+  Board b = parse(R"(
+.......
+.......
+.......
+..1....
+.212...
+.212...
+)");
+  EXPECT_EQ(b.find_move(/*depth=*/5), 2);
+}
+
+TEST(Eval, ForTheBlock) {
+  Board b = parse(R"(
+.......
+.......
+.......
+..2....
+.121...
+.121...
+)");
+  EXPECT_EQ(b.find_move(/*depth=*/5), 2);
 }
