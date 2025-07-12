@@ -132,7 +132,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\board.cc" />
-    <ClCompile Include="Sandbox.cpp" />
+    <ClCompile Include="Sandbox.cc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\board.h" />

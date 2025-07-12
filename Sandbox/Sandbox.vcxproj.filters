@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Sandbox.cpp">
+    <ClCompile Include="Sandbox.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\board.cc">
