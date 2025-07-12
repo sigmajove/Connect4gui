@@ -477,3 +477,27 @@ TEST(Eval, ForTheBlock) {
 )");
   EXPECT_EQ(b.find_move(/*depth=*/5), 2);
 }
+
+TEST(Eval, GetTheFork) {
+  Board b = parse(R"(
+.......
+.......
+...1...
+...22..
+.1121..
+12112..
+)");
+  EXPECT_EQ(b.find_move(/*depth=*/5), 2);
+}
+
+TEST(Eval, BlockTheFork) {
+  Board b = parse(R"(
+.......
+.......
+...2...
+...12..
+.2212..
+21221..
+)");
+  EXPECT_EQ(b.find_move(/*depth=*/5), 2);
+}
