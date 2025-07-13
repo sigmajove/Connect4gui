@@ -4,8 +4,10 @@
 #include <format>
 #include <iostream>
 #include <limits>
+#include <iostream>
 #include <ostream>
 #include <sstream>
+#include <stdexcept>
 #include <streambuf>
 #include <utility>
 #include <vector>
@@ -58,15 +60,15 @@ std::vector<std::size_t> Board::legal_moves() const {
   return result;
 }
 
-void Board::drop(std::size_t column) {
+std::size_t Board::drop(std::size_t column) {
   for (std::size_t row = 0; row < kNumRows; ++row) {
     if (get_value(row, column) == 0) {
       set_value(row, column, whose_turn_);
       whose_turn_ = 3 - whose_turn_;
-      return;
+      return row;
     }
   }
-  assert(false);
+  throw std::runtime_error("Column is full");
 }
 
 void Board::push(std::size_t column) {
@@ -119,36 +121,35 @@ void Board::combos(
   }
 }
 
-std::uint8_t Board::game_over() const {
-  const std::uint8_t other = 3 - favorite_;
-  bool four_for_me = false;
-  bool four_for_him = false;
+Board::Outcome Board::IsGameOver() const {
+  bool red_wins = false;
+  bool yellow_wins = false;
   bool contested = false;
 
-  combos([other, &four_for_me, &four_for_him, &contested, this](
-             Coord a, Coord b, Coord c, Coord d) {
+  combos([&red_wins, &yellow_wins, &contested, this](Coord a, Coord b, Coord c,
+                                                     Coord d) {
     const std::uint8_t ac = get_value(a.first, a.second);
     const std::uint8_t bc = get_value(b.first, b.second);
     const std::uint8_t cc = get_value(c.first, c.second);
     const std::uint8_t dc = get_value(d.first, d.second);
 
-    const int mine = (ac == favorite_) + (bc == favorite_) + (cc == favorite_) +
-                     (dc == favorite_);
+    const int red_count = (ac == 1) + (bc == 1) + (cc == 1) + (dc == 1);
+    const int yellow_count = (ac == 2) + (bc == 2) + (cc == 2) + (dc == 2);
 
-    const int theirs =
-        (ac == other) + (bc == other) + (cc == other) + (dc == other);
-
-    if (mine == 4) {
-      four_for_me = true;
+    if (red_count == 4) {
+      red_wins = true;
     }
-    if (theirs == 4) {
-      four_for_him = true;
+    if (yellow_count == 4) {
+      yellow_wins = true;
     }
-    if (mine == 0 || theirs == 0) {
+    if (red_count == 0 || yellow_count == 0) {
       contested = true;
     }
   });
-  return four_for_me ? 1 : four_for_him ? 2 : contested ? 0 : 3;
+  return red_wins      ? Outcome::kRedWins
+         : yellow_wins ? Outcome::kYellowWins
+         : contested   ? Outcome::kContested
+                       : Outcome::kDraw;
 }
 
 int Board::heuristic() const {
@@ -223,14 +224,14 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
   if (depth == 0 || moves.empty()) {
     return heuristic();
   }
-  switch (game_over()) {
-    case 1:
-      return 1000;
-    case 2:
-      return -1000;
-    case 3:
+  switch (IsGameOver()) {
+    case Outcome::kRedWins:
+      return favorite_ == 1 ? 1000 : -1000;
+    case Outcome::kYellowWins:
+      return favorite_ == 2 ? 1000 : -1000;
+    case Outcome::kDraw:
       return 0;
-    default:
+    case Outcome::kContested:
       break;
   }
 

@@ -1,10 +1,11 @@
 // Connect4gui.cpp : Defines the entry point for the application.
 //
-
+#define _CRT_SECURE_NO_WARNINGS
 #include "Connect4gui.h"
 
 #include <array>
 #include <format>
+#include <iostream>
 
 #include "board.h"
 #include "framework.h"
@@ -28,7 +29,17 @@ HBITMAP white_circle;
 HBITMAP red_circle;
 HBITMAP yellow_circle;
 
-Board app_data;  // TODO: Figure out how to attach this data to the main window.
+// TODO: Figure out how to attach this data to the main window.
+std::array<HWND, kColumns> drop_buttons;
+
+HWND restart_button;
+const char* const kStartOver = "Start Over";
+const char* const kGoSecond = "Go Second";
+
+// The label applied to the button on the bottom of the screen.
+const char* restart_label = kGoSecond;
+
+Board app_data;
 
 // Forward declarations of functions included in this code module:
 ATOM MyRegisterClass(HINSTANCE hInstance);
@@ -36,12 +47,16 @@ BOOL InitInstance(HINSTANCE, int);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 
+void message(const char* msg, const char* title) {
+  MessageBoxA(NULL,  // no parent
+              msg, title,
+              MB_OK | MB_ICONINFORMATION  // Buttons and icon type
+  );
+}
+
 void CheckResult(bool check, const char* msg) {
   if (!check) {
-    MessageBoxA(NULL,  // no parent
-                msg, "error",
-                MB_OK | MB_ICONINFORMATION  // Buttons and icon type
-    );
+    message(msg, "error");
   }
 }
 
@@ -50,6 +65,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                       _In_ int nCmdShow) {
   UNREFERENCED_PARAMETER(hPrevInstance);
   UNREFERENCED_PARAMETER(lpCmdLine);
+
+#if 0
+  // For debugging
+  AllocConsole();
+  freopen("CONOUT$", "w", stdout);
+  std::cout << "Debug console\n";
+#endif
 
   // Initialize global strings
   LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -138,21 +160,37 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
         (kTileSize - kButtonWidth) / 2 + kTileSize * c, kMargin, kButtonWidth,
         kButtonHeight, hWnd, (HMENU)(INT_PTR)kButtons[c], hInstance, nullptr);
-    if (!buttonWnd) {
+    if (buttonWnd == NULL) {
       return FALSE;
     }
+    drop_buttons[c] = buttonWnd;
   }
 
-  HWND buttonWnd = CreateWindowW(
-      L"BUTTON", L"Go Second",
+  restart_button = CreateWindowA(
+      "BUTTON", restart_label,
       WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, kMargin,
-      3 * kMargin + kButtonHeight + kRows * kTileSize, 80, kButtonHeight, hWnd,
+      3 * kMargin + kButtonHeight + kRows * kTileSize, 110, kButtonHeight, hWnd,
       (HMENU)(INT_PTR)IDR_RESTART, hInstance, nullptr);
+  if (restart_button == NULL) {
+    return FALSE;
+  }
 
   ShowWindow(hWnd, nCmdShow);
   UpdateWindow(hWnd);
 
   return TRUE;
+}
+
+void hide_drop_buttons() {
+  for (HWND b : drop_buttons) {
+    ShowWindow(b, SW_HIDE);
+  }
+}
+
+void show_drop_buttons() {
+  for (HWND b : drop_buttons) {
+    ShowWindow(b, SW_SHOW);
+  }
 }
 
 void DrawCircles(HDC hdc) {
@@ -196,6 +234,50 @@ void DrawCircles(HDC hdc) {
   DeleteDC(yellow);
 }
 
+// Checks whether the game is over.
+// If it is, outputs the appropriate message and returns true.
+// Otherwise, returns false.
+bool CheckGameOver() {
+  static const char* const kGameOver = "Game Over";
+
+  const Board::Outcome id = app_data.IsGameOver();
+  if (id != Board::Outcome::kContested) {
+    hide_drop_buttons();
+  }
+  switch (id) {
+    case Board::Outcome::kRedWins:
+      message("Red Wins", kGameOver);
+      break;
+    case Board::Outcome::kYellowWins:
+      message("Yellow Wins", kGameOver);
+      break;
+    case Board::Outcome::kDraw:
+      message("Tie Game", kGameOver);
+      break;
+    case Board::Outcome::kContested:
+      return false;
+  }
+  return true;
+}
+
+void ChangeRestartLabel(const char* label) {
+  if (restart_label != label) {
+    restart_label = label;
+    CheckResult(SendMessageA(restart_button, WM_SETTEXT, 0,
+                             reinterpret_cast<LPARAM>(restart_label)),
+                "WM_SETTEXT failed");
+  }
+}
+
+void Drop(HWND hWnd, std::size_t col) {
+  const std::size_t row = app_data.drop(col);
+  if (row == Board::kNumRows - 1) {
+    ShowWindow(drop_buttons[col], SW_HIDE);
+  }
+  RedrawWindow(hWnd, NULL, NULL,
+               RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+}
+
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -216,9 +298,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam,
         case IDM_ABOUT:
           DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
           break;
+
         case IDM_EXIT:
           DestroyWindow(hWnd);
           break;
+
         case IDR_MENU1:
         case IDR_MENU2:
         case IDR_MENU3:
@@ -226,14 +310,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam,
         case IDR_MENU5:
         case IDR_MENU6:
         case IDR_MENU7:
-          app_data.drop(wmId - IDR_MENU1);
-          RedrawWindow(hWnd, NULL, NULL,
-                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+          if (restart_label == kGoSecond) {
+            // Initialize a new game.
+            ChangeRestartLabel(kStartOver);
+          }
+
+          Drop(hWnd, wmId - IDR_MENU1);
+          if (!CheckGameOver()) {
+            Drop(hWnd, app_data.find_move(/*depth=*/6));
+            CheckGameOver();
+          }
           break;
+
         case IDR_RESTART:
-          app_data.clear();
-          RedrawWindow(hWnd, NULL, NULL,
-                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+          if (restart_label == kStartOver) {
+            // Restart the game.
+            app_data.clear();
+            RedrawWindow(hWnd, NULL, NULL,
+                         RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+            show_drop_buttons();
+            ChangeRestartLabel(kGoSecond);
+          } else {
+            // Go Second function
+            app_data.set_favorite(1);  // The computer goes first.
+            Drop(hWnd, 3);
+          }
         default:
           return DefWindowProc(hWnd, message, wParam, lParam);
       }

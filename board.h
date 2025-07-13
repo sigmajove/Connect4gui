@@ -45,7 +45,8 @@ class Board {
   // Returns the columns where drop and push are valid.
   std::vector<std::size_t> legal_moves() const;
 
-  void drop(std::size_t column);
+  // Returns the row into which the checker is dropped.
+  std::size_t drop(std::size_t column);
 
   void push(std::size_t column);
   void pop();
@@ -54,13 +55,13 @@ class Board {
     std::fill(data_.begin(), data_.end(), 0);
     stack_.clear();
     whose_turn_ = 1;
+
+    // The computer goes second unless the human presses the "Go Second" button.
+    favorite_ = 2;
   }
 
-  // Returns 0 if the game can continue
-  // Returns 1 if player 1 has won.
-  // Returns 2 if player 2 has won.
-  // Returns 3 if nobody can win.
-  std::uint8_t game_over() const;
+  enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
+  Outcome IsGameOver() const;
 
   // Estimate the desirability of the board from the point of view
   // of the favorite().

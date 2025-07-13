@@ -451,6 +451,7 @@ TEST(Eval, Empty) {
   Board b;
   // The first move on an empty board should be the center column.
   // This should not be rocket science.
+  b.set_favorite(1);
   EXPECT_EQ(b.find_move(/*depth=*/5), 1);  // ??
 }
 
@@ -463,6 +464,7 @@ TEST(Eval, ForTheWin) {
 .212...
 .212...
 )");
+  b.set_favorite(1);
   EXPECT_EQ(b.find_move(/*depth=*/5), 2);
 }
 
@@ -475,6 +477,7 @@ TEST(Eval, ForTheBlock) {
 .121...
 .121...
 )");
+  b.set_favorite(1);
   EXPECT_EQ(b.find_move(/*depth=*/5), 2);
 }
 
@@ -487,6 +490,7 @@ TEST(Eval, GetTheFork) {
 .1121..
 12112..
 )");
+  b.set_favorite(1);
   EXPECT_EQ(b.find_move(/*depth=*/5), 2);
 }
 
@@ -499,5 +503,18 @@ TEST(Eval, BlockTheFork) {
 .2212..
 21221..
 )");
+  b.set_favorite(1);
   EXPECT_EQ(b.find_move(/*depth=*/6), 2);
+}
+
+TEST(Winner, RedWins) {
+  const Board b = parse(R"(
+.......
+.......
+..121..
+..212..
+.2121..
+221112.
+)");
+  EXPECT_EQ(b.IsGameOver(), Board::Outcome::kYellowWins);
 }
