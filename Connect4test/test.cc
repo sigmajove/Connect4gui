@@ -518,3 +518,40 @@ TEST(Winner, RedWins) {
 )");
   EXPECT_EQ(b.IsGameOver(), Board::Outcome::kYellowWins);
 }
+
+// The outcome of the program playing itself.
+// This is a brittle test; it will need to be updated if the
+// game AI changes.
+TEST(Eval, PlaySelf) {
+  Board b;
+  b.drop(3);  // First move pre-programmed
+
+  Board::Outcome outcome;
+  for (;;) {
+    // Yellow move
+    b.set_favorite(2);
+    b.drop(b.find_move(/*depth=*/6));
+    outcome = b.IsGameOver();
+    if (outcome != Board::Outcome::kContested) {
+      break;
+    }
+
+    // Red move
+    b.set_favorite(1);
+    b.drop(b.find_move(/*depth=*/6));
+    outcome = b.IsGameOver();
+    if (outcome != Board::Outcome::kContested) {
+      break;
+    }
+  }
+  EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
+  const Board golden = parse(R"(
+212222.
+121112.
+212221.
+121112.
+2122112
+1211211
+)");
+  EXPECT_TRUE(b == golden);
+}
