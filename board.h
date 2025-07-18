@@ -35,7 +35,7 @@ class Board {
 
   // Just compares the values of the squares.
   friend bool operator==(const Board& lhs, const Board& rhs) {
-    return lhs.data_ == rhs.data_;
+    return lhs.red_set_ == rhs.red_set_ && lhs.yellow_set_ == rhs.yellow_set_;
   }
 
   // Set and Get functions.
@@ -52,7 +52,8 @@ class Board {
   void pop();
 
   void clear() {
-    std::fill(data_.begin(), data_.end(), 0);
+    red_set_ = 0;
+    yellow_set_ = 0;
     stack_.clear();
     whose_turn_ = 1;
 
@@ -103,7 +104,11 @@ class Board {
   static constexpr std::size_t kNumBytes =
       (kNumValues + kValuesPerByte - 1) / kValuesPerByte;
 
-  std::array<uint8_t, kNumBytes> data_;
+  // Each of these is 48 bits, numbered rowwise.
+  // "red" is player 1 and "yellow" is player 2.
+  std::uint64_t red_set_ = 0;
+  std::uint64_t yellow_set_ = 0;
+
   std::vector<Coord> stack_;
   uint8_t whose_turn_ = 1;
 

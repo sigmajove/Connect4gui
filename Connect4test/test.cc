@@ -70,11 +70,20 @@ TEST(Game, Combos) {
 
 TEST(Game, Board) {
   Board b;
-  for (std::size_t row = 0; row < 6; ++row) {
-    for (std::size_t col = 0; col < 7; ++col) {
+  for (std::size_t row = 0; row < Board::kNumRows; ++row) {
+    for (std::size_t col = 0; col < Board::kNumCols; ++col) {
       EXPECT_EQ(b.get_value(row, col), 0);
-      b.set_value(row, col, (row + col) % 2);
-      EXPECT_EQ(b.get_value(row, col), (row + col) % 2);
+
+      // Legal values can be 0, 1, 2, 3.
+      std::uint8_t value = (row + col) % 4;
+
+      b.set_value(row, col, value);
+      EXPECT_EQ(b.get_value(row, col), value);
+
+      value = 3 - value;
+
+      b.set_value(row, col, value);
+      EXPECT_EQ(b.get_value(row, col), value);
     }
   }
 }

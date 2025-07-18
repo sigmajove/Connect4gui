@@ -4,7 +4,6 @@
 #include <format>
 #include <iostream>
 #include <limits>
-#include <iostream>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -30,11 +29,28 @@ void Board::set_value(std::size_t row, std::size_t col, uint8_t value) {
   assert(col < kNumCols);
   const std::size_t index = row * kNumCols + col;
   assert(index < kNumValues);
-
-  const std::size_t byte_index = index / kValuesPerByte;
-  const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
-  data_[byte_index] &= ~(0b11 << bit_offset);           // Clear existing bits
-  data_[byte_index] |= ((value & 0b11) << bit_offset);  // Set new value
+  std::uint64_t mask = UINT64_C(1) << index;
+  std::uint64_t unmask = ~mask;
+  switch (value) {
+    case 0:
+      red_set_ &= unmask;
+      yellow_set_ &= unmask;
+      break;
+    case 1:
+      red_set_ |= mask;
+      yellow_set_ &= unmask;
+      break;
+    case 2:
+      red_set_ &= unmask;
+      yellow_set_ |= mask;
+      break;
+    case 3:
+      red_set_ |= mask;
+      yellow_set_ |= mask;
+      break;
+    default:
+      throw std::runtime_error(std::format("Bad set value {}", value));
+  }
 }
 
 std::uint8_t Board::get_value(std::size_t row, std::size_t col) const {
@@ -43,10 +59,9 @@ std::uint8_t Board::get_value(std::size_t row, std::size_t col) const {
   const std::size_t index = row * kNumCols + col;
   assert(index < kNumValues);
 
-  const std::size_t byte_index = index / kValuesPerByte;
-  const std::size_t bit_offset = (index % kValuesPerByte) * kBitsPerValue;
-  const std::uint8_t result = (data_[byte_index] >> bit_offset) & 0b11;
-  return result;
+  std::uint64_t mask = UINT64_C(1) << index;
+
+  return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
 }
 
 std::vector<std::size_t> Board::legal_moves() const {
