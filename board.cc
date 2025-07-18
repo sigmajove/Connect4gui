@@ -136,35 +136,46 @@ void Board::combos(
   }
 }
 
-Board::Outcome Board::IsGameOver() const {
-  bool red_wins = false;
-  bool yellow_wins = false;
-  bool contested = false;
+std::uint64_t Index(const Board::Coord &c) {
+  return c.first * Board::kNumCols + c.second;
+}
 
-  combos([&red_wins, &yellow_wins, &contested, this](Coord a, Coord b, Coord c,
-                                                     Coord d) {
-    const std::uint8_t ac = get_value(a.first, a.second);
-    const std::uint8_t bc = get_value(b.first, b.second);
-    const std::uint8_t cc = get_value(c.first, c.second);
-    const std::uint8_t dc = get_value(d.first, d.second);
+Board::MaskArray Board::winning_masks() {
+  Board::MaskArray result;
+  std::size_t i = 0;
+  combos([&i, &result](Coord a, Coord b, Coord c, Coord d) {
+    std::uint64_t mask = 0;
+    mask |= (UINT64_C(1) << Index(a));
+    mask |= (UINT64_C(1) << Index(b));
+    mask |= (UINT64_C(1) << Index(c));
+    mask |= (UINT64_C(1) << Index(d));
 
-    const int red_count = (ac == 1) + (bc == 1) + (cc == 1) + (dc == 1);
-    const int yellow_count = (ac == 2) + (bc == 2) + (cc == 2) + (dc == 2);
-
-    if (red_count == 4) {
-      red_wins = true;
-    }
-    if (yellow_count == 4) {
-      yellow_wins = true;
-    }
-    if (red_count == 0 || yellow_count == 0) {
-      contested = true;
-    }
+    result[i++] = mask;
   });
-  return red_wins      ? Outcome::kRedWins
-         : yellow_wins ? Outcome::kYellowWins
-         : contested   ? Outcome::kContested
-                       : Outcome::kDraw;
+  assert(i == result.max_size());
+
+  return result;
+}
+
+const Board::MaskArray all_winning_masks = Board::winning_masks();
+
+Board::Outcome Board::IsGameOver() const {
+  Outcome result = Outcome::kDraw;
+  for (std::uint64_t mask : all_winning_masks) {
+    if ((red_set_ & mask) == mask) {
+      result = Outcome::kRedWins;
+      break;
+    }
+    if ((yellow_set_ & mask) == mask) {
+      result = Outcome::kYellowWins;
+      break;
+    }
+    if ((red_set_ & mask) == 0 || (yellow_set_ & mask) == 0) {
+      result = Outcome::kContested;
+    }
+  }
+
+  return result;
 }
 
 int Board::heuristic() const {

@@ -96,59 +96,10 @@ std::size_t num_winners(const Board &board, std::uint8_t p) {
         board.get_value(b.first, b.second) == p &&
         board.get_value(c.first, c.second) == p &&
         board.get_value(d.first, d.second) == p) {
-#if 0
-      std::cout << std::format("{} {}, {} {}, {} {}, {} {}\n", a.first,
-                               a.second, b.first, b.second, c.first, c.second,
-                               d.first, d.second);
-#endif
       ++counter;
     }
   });
   return counter;
-}
-
-bool has_winner(const Board &b, std::uint8_t p) {
-  for (std::size_t row = 0; row < 6; ++row) {
-    for (std::size_t col = 0; col <= 3; ++col) {
-      if (b.get_value(row, col) == p && b.get_value(row, col + 1) == p &&
-          b.get_value(row, col + 2) == p && b.get_value(row, col + 3) == p) {
-        std::cout << "vertical " << row << ", " << col << "\n";
-        return true;
-      }
-    }
-  }
-  for (std::size_t row = 0; row <= 2; ++row) {
-    for (std::size_t col = 0; col < 7; ++col) {
-      if (b.get_value(row, col) == p && b.get_value(row + 1, col) == p &&
-          b.get_value(row + 2, col) == p && b.get_value(row + 3, col) == p) {
-        std::cout << "horizontal " << row << ", " << col << "\n";
-        return true;
-      }
-    }
-
-    for (std::size_t row = 0; row <= 2; ++row) {
-      for (std::size_t col = 0; col <= 3; col++) {
-        if (b.get_value(row, col) == p && b.get_value(row + 1, col + 1) == p &&
-            b.get_value(row + 2, col + 2) == p &&
-            b.get_value(row + 3, col + 3) == p) {
-          std::cout << "diag 1 " << row << ", " << col << "\n";
-          return true;
-        }
-      }
-    }
-
-    for (std::size_t row = 0; row <= 2; ++row) {
-      for (std::size_t col = 3; col < 7; col++) {
-        if (b.get_value(row, col) == p && b.get_value(row + 1, col - 1) == p &&
-            b.get_value(row + 2, col - 2) == p &&
-            b.get_value(row + 3, col - 3) == p) {
-          std::cout << "diag 2 " << row << ", " << col << "\n";
-          return true;
-        }
-      }
-    }
-  }
-  return false;
 }
 
 // Returns the row into which a move at col goes.
@@ -178,7 +129,8 @@ std::size_t eval(Board &b, std::uint8_t player) {
     }
     has_move = true;
     b.set_value(row, col, player);
-    if (has_winner(b, player)) {
+    if (b.IsGameOver() == (player == 1 ? Board::Outcome::kRedWins
+                                       : Board::Outcome::kYellowWins)) {
       b.set_value(row, col, 0);
       return player;
     }
@@ -200,8 +152,7 @@ std::size_t eval(Board &b, std::uint8_t player) {
 
 TEST(Game, Win) {
   Board b;
-  EXPECT_FALSE(has_winner(b, 1));
-  EXPECT_FALSE(has_winner(b, 2));
+  EXPECT_EQ(b.IsGameOver(), Board::Outcome::kContested);
 }
 
 class ParseTest : public testing::Test {
@@ -371,10 +322,8 @@ TEST(Game, Eval) {
               1, 0},
       };
   for (const auto &[s, player, ans] : data) {
-    std::cout << s << "\n";
     Board b = parse(s);
-    EXPECT_FALSE(has_winner(b, 1));
-    EXPECT_FALSE(has_winner(b, 2));
+    EXPECT_TRUE(b.IsGameOver() == Board::Outcome::kContested);
     EXPECT_EQ(eval(b, player), ans);
   }
 }
@@ -526,6 +475,18 @@ TEST(Winner, RedWins) {
 221112.
 )");
   EXPECT_EQ(b.IsGameOver(), Board::Outcome::kYellowWins);
+}
+
+TEST(Eval, CheckWin) {
+  const Board b = parse(R"(
+.1.2.2.
+.2.1.2.
+21.2.1.
+1211222
+2122111
+1211211
+)");
+  EXPECT_EQ(b.IsGameOver(), Board::Outcome::kContested);
 }
 
 // The outcome of the program playing itself.

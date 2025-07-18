@@ -89,6 +89,12 @@ class Board {
                                                             int alpha, int beta,
                                                             bool maximizing);
 
+  // 69 is the number of possible 4-in-a-row positions on the board.
+  using MaskArray = std::array<std::uint64_t, 69>;
+
+  // Computes the winning masks at program startup.
+  static MaskArray winning_masks();
+
   // Returns a string representation of the board.
   std::string image() const;
 
