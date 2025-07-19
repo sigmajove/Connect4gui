@@ -27,6 +27,7 @@ class Board {
   Board(const Board&) = default;
   Board& operator=(const Board&) = default;
 
+  // Sets the player that the move-finder wants to win.
   void set_favorite(uint8_t player) {
     assert(player == 1 || player == 2);
     favorite_ = player;
