@@ -1,6 +1,9 @@
 #include "board.h"
 
+#include <intrin.h>
+
 #include <cassert>
+#include <cstddef>
 #include <format>
 #include <iostream>
 #include <limits>
@@ -24,12 +27,15 @@ class nullstream : public std::ostream {
   nullbuf nbuf;
 };
 
+// Returns a mask with a single bit set.
+inline std::uint64_t OneMask(std::size_t index) { return UINT64_C(1) << index; }
+
 void Board::set_value(std::size_t row, std::size_t col, uint8_t value) {
   assert(row < kNumRows);
   assert(col < kNumCols);
   const std::size_t index = row * kNumCols + col;
   assert(index < kNumValues);
-  std::uint64_t mask = UINT64_C(1) << index;
+  const std::uint64_t mask = OneMask(index);
   std::uint64_t unmask = ~mask;
   switch (value) {
     case 0:
@@ -59,8 +65,7 @@ std::uint8_t Board::get_value(std::size_t row, std::size_t col) const {
   const std::size_t index = row * kNumCols + col;
   assert(index < kNumValues);
 
-  std::uint64_t mask = UINT64_C(1) << index;
-
+  const std::uint64_t mask = OneMask(index);
   return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
 }
 
@@ -136,8 +141,16 @@ void Board::combos(
   }
 }
 
+// Converts back and forth between an index (range [0:42)) and
+// a (row, col) pair.
 std::uint64_t Index(const Board::Coord &c) {
   return c.first * Board::kNumCols + c.second;
+}
+
+Board::Coord FromIndex(std::size_t index) {
+  const std::size_t row = index / Board::kNumCols;
+  const std::size_t col = index % Board::kNumCols;
+  return std::make_pair(row, col);
 }
 
 Board::MaskArray Board::winning_masks() {
@@ -145,10 +158,10 @@ Board::MaskArray Board::winning_masks() {
   std::size_t i = 0;
   combos([&i, &result](Coord a, Coord b, Coord c, Coord d) {
     std::uint64_t mask = 0;
-    mask |= (UINT64_C(1) << Index(a));
-    mask |= (UINT64_C(1) << Index(b));
-    mask |= (UINT64_C(1) << Index(c));
-    mask |= (UINT64_C(1) << Index(d));
+    mask |= OneMask(Index(a));
+    mask |= OneMask(Index(b));
+    mask |= OneMask(Index(c));
+    mask |= OneMask(Index(d));
 
     result[i++] = mask;
   });
@@ -176,6 +189,87 @@ Board::Outcome Board::IsGameOver() const {
   }
 
   return result;
+}
+
+// For debugging
+std::string DumpMask(std::uint64_t mask) {
+  std::ostringstream stream;
+  for (std::size_t r = 0; r < Board::kNumRows; ++r) {
+    const size_t row = Board::kNumRows - 1 - r;
+    for (std::size_t col = 0; col < Board::kNumCols; ++col) {
+      const std::size_t index = row * Board::kNumCols + col;
+      const bool value = mask & OneMask(index);
+      stream << (value ? '*' : '.');
+    }
+    stream << '\n';
+  }
+  return stream.str();
+}
+
+std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
+    std::uint8_t me) const {
+  std::uint64_t my_bits, his_bits;
+  switch (me) {
+    case 1:
+      my_bits = red_set_;
+      his_bits = yellow_set_;
+      break;
+    case 2:
+      my_bits = yellow_set_;
+      his_bits = red_set_;
+      break;
+    default:
+      throw std::runtime_error(std::format("Bad value {}", me));
+  }
+
+  unsigned int other_count = 0;  // The number of supported three-in-a-kinds
+                                 // my opponent has.
+  unsigned long other_index;     // The index of the last one seen.
+
+  // A single bitmap indicating whether either color is present.
+  const std::uint64_t either_bits = red_set_ | yellow_set_;
+
+  for (std::uint64_t mask : all_winning_masks) {
+    // Check if I have a supported three-in-a-row
+    const std::uint64_t my_three = mask & my_bits;
+    if (__popcnt64(my_three) == 3) {
+      // Find which of the four bits is turned off.
+      unsigned long bit_pos;
+      _BitScanForward64(&bit_pos, my_three ^ mask);
+
+      // Check that the zero bit really is zero.
+      if ((OneMask(bit_pos) & his_bits) == 0) {
+        // Check if the zero bit is supported.
+        if (bit_pos < kNumCols || (OneMask(bit_pos - kNumCols) & either_bits)) {
+          // Return the column of the winning move.
+          return std::make_pair(bit_pos % kNumCols, ThreeKind::kWin);
+        }
+      }
+    }
+    // Check if he has a supported three-in-a-row
+    const std::uint64_t his_three = mask & his_bits;
+    if (__popcnt64(his_three) == 3) {
+      // Find which of the four bits is turned off.
+      unsigned long bit_pos;
+      _BitScanForward64(&bit_pos, his_three ^ mask);
+      // Check that the zero bit really is zero.
+      if ((OneMask(bit_pos) & my_bits) == 0) {
+        // Check if the zero bit is supported.
+        if (bit_pos < kNumCols || (OneMask(bit_pos - kNumCols) & either_bits)) {
+          other_index = bit_pos;
+          ++other_count;
+        }
+      }
+    }
+  }
+  switch (other_count) {
+    case 0:
+      return std::make_pair(0, ThreeKind::kNone);
+    case 1:
+      return std::make_pair(other_index % kNumCols, ThreeKind::kBlock);
+    default:
+      return std::make_pair(other_index % kNumCols, ThreeKind::kLose);
+  }
 }
 
 int Board::heuristic() const {

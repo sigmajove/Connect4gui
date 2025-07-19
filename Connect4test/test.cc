@@ -525,3 +525,116 @@ TEST(Eval, PlaySelf) {
 )");
   EXPECT_TRUE(b == golden);
 }
+
+TEST(ThreeInRow, Empty) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+.......
+.......
+.......
+)");
+  const auto result = b.ThreeInARow(1);
+  EXPECT_EQ(result.first, 0);
+  EXPECT_EQ(result.second, Board::ThreeKind::kNone);
+}
+
+TEST(ThreeInRow, None) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+2121211
+2112212
+1212121
+)");
+  const auto result = b.ThreeInARow(1);
+  EXPECT_EQ(result.first, 0);
+  EXPECT_EQ(result.second, Board::ThreeKind::kNone);
+}
+
+TEST(ThreeInRow, WinOne) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+....2..
+.2..2..
+.1.11..
+)");
+  const auto result = b.ThreeInARow(1);
+  EXPECT_EQ(result.first, 2);
+  EXPECT_EQ(result.second, Board::ThreeKind::kWin);
+}
+
+TEST(ThreeInRow, OneFilled) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+....2..
+.2..2..
+.1211..
+)");
+  const auto result = b.ThreeInARow(1);
+  EXPECT_EQ(result.first, 0);
+  EXPECT_EQ(result.second, Board::ThreeKind::kNone);
+}
+
+TEST(ThreeInRow, WinTwo) {
+  const Board b = parse(R"(
+.......
+.......
+....2..
+....2..
+.2..2..
+.1.11..
+)");
+  const auto result = b.ThreeInARow(2);
+  EXPECT_EQ(result.first, 4);
+  EXPECT_EQ(result.second, Board::ThreeKind::kWin);
+}
+
+TEST(ThreeInRow, BlockTwo) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+....2..
+.2..2..
+.1.11..
+)");
+  const auto result = b.ThreeInARow(2);
+  EXPECT_EQ(result.first, 2);
+  EXPECT_EQ(result.second, Board::ThreeKind::kBlock);
+}
+
+TEST(ThreeInRow, NoSupport) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+..2....
+.212...
+.1212..
+)");
+  const auto result = b.ThreeInARow(2);
+  EXPECT_EQ(result.first, 0);
+  EXPECT_EQ(result.second, Board::ThreeKind::kNone);
+}
+
+TEST(ThreeInRow, LoseTwo) {
+  const Board b = parse(R"(
+.......
+.......
+.......
+.2..1..
+.2..1..
+21.112.
+)");
+  const auto result = b.ThreeInARow(2);
+  EXPECT_EQ(result.first, 4);
+  EXPECT_EQ(result.second, Board::ThreeKind::kLose);
+}
+
