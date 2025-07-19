@@ -22,6 +22,9 @@ class Board {
   static constexpr std::size_t kNumRows = 6;
   static constexpr std::size_t kNumCols = 7;
 
+  // A (row, col) pair.
+  using Coord = std::pair<std::size_t, std::size_t>;
+
   Board() { clear(); }
 
   Board(const Board&) = default;
@@ -75,8 +78,6 @@ class Board {
   // For each combo with only the opponent's tokens, score -1, -2, or -3,
   // depending on the number of tokens.
   int heuristic() const;
-
-  using Coord = std::pair<std::size_t, std::size_t>;
 
   enum class ThreeKind {
     kNone,   // Nobody has a supported three-in-a-row. column is irrelevant.
