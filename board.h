@@ -78,14 +78,16 @@ class Board {
   using Coord = std::pair<std::size_t, std::size_t>;
 
   enum class ThreeKind {
-    kNone,   // Nobody has three-in-a-row. column is irrelevant.
-    kWin,    // I have three-in-a-row. column is the winning move.
-    kBlock,  // column required to block opponants's three-in-a-row.
-    kLose,   // Opponent has two three-of-a kinds. I will lose.
+    kNone,   // Nobody has a supported three-in-a-row. column is irrelevant.
+    kWin,    // I have a supported three-in-a-row. column is the winning move.
+    kBlock,  // column required to block opponants's supported three-in-a-row.
+    kLose,   // Opponent has two supported three-in-a-rows. I will lose,
+             // because I can only block one.
   };
 
-  // Searches for three-in-a-row.
-  // If found, return the column needed to make four-in-a-row.
+  // Searches for supported three-in-a-rows. "Supported" means the fourth
+  // square is empty, and the square below it is occupied or nonexistent.
+  // If found, returns the column needed to make or block four-in-a-row.
   std::pair<std::size_t, ThreeKind> ThreeInARow(std::uint8_t me) const;
 
   // Calls visit with each of the four-in-a-row coordinate possibilities.
