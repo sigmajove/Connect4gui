@@ -157,7 +157,9 @@ class Board {
     std::uint8_t yellow_count;
   };
 
+#if 0
   std::array<PieceCounts, kNumFours> partial_wins_;
+#endif
 
   std::vector<Coord> stack_;
   unsigned int whose_turn_ = 1;

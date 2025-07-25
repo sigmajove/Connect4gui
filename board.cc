@@ -76,8 +76,9 @@ const Board::PartialWins all_partial_wins = Board::ComputePartialWins();
 
 void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   const std::size_t position = Index(row, col);
-  const std::vector<std::size_t> &needs_adjust = all_partial_wins[position];
   const std::uint64_t mask = OneMask(position);
+#if 0
+  const std::vector<std::size_t> &needs_adjust = all_partial_wins[position];
 
   const std::size_t current_value =
       (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
@@ -114,6 +115,7 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
     throw std::runtime_error(
         std::format("Invalid transition {} to {}", current_value, value));
   }
+#endif
 
   std::uint64_t unmask = ~mask;
   switch (value) {
@@ -141,6 +143,7 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
 // Checks the consistency of partial_wins against the current
 // board position.
 void Board::CheckPartialWins() {
+#if 0
   for (std::size_t i = 0; i < kNumFours; ++i) {
     const std::uint64_t mask = all_winning_masks[i];
     const int red_count = std::popcount(mask & red_set_);
@@ -153,7 +156,9 @@ void Board::CheckPartialWins() {
                       partial_wins_[i].yellow_count));
     }
   }
+#endif
 }
+
 
 unsigned int Board::get_value(std::size_t row, std::size_t col) const {
   const std::uint64_t mask = OneMask(Index(row, col));
@@ -207,10 +212,12 @@ void Board::clear() {
   // button.
   favorite_ = 2;
 
+#if 0
   for (PieceCounts &count : partial_wins_) {
     count.red_count = 0;
     count.yellow_count = 0;
   }
+#endif
 }
 
 void Board::push(std::size_t column) {
