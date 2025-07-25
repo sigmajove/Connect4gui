@@ -45,6 +45,7 @@ Board parse(const std::string image) {
       break;
     }
   }
+  b.CheckPartialWins();
   return b;
 }
 
@@ -70,19 +71,23 @@ TEST(Game, Combos) {
 
 TEST(Game, Board) {
   Board b;
+  b.CheckPartialWins();
   for (std::size_t row = 0; row < Board::kNumRows; ++row) {
     for (std::size_t col = 0; col < Board::kNumCols; ++col) {
       EXPECT_EQ(b.get_value(row, col), 0);
 
-      // Legal values can be 0, 1, 2, 3.
-      std::uint8_t value = (row + col) % 4;
+      // Legal values can be 0, 1, 2.
+      // Maybe someday 3.
+      std::uint8_t value = (row + col) % 3;
 
       b.set_value(row, col, value);
+      b.CheckPartialWins();
       EXPECT_EQ(b.get_value(row, col), value);
 
-      value = 3 - value;
+      value = 2 - value;
 
       b.set_value(row, col, value);
+      b.CheckPartialWins();
       EXPECT_EQ(b.get_value(row, col), value);
     }
   }

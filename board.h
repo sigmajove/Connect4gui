@@ -23,6 +23,7 @@ class Board {
 
   static constexpr std::size_t kNumRows = 6;
   static constexpr std::size_t kNumCols = 7;
+  static constexpr std::size_t kBoardSize = kNumRows * kNumCols;
 
   // A (row, col) pair.
   using Coord = std::pair<std::size_t, std::size_t>;
@@ -58,18 +59,11 @@ class Board {
   // Returns the row into which the checker is dropped.
   std::size_t drop(std::size_t column);
 
+  // Resets the board to empty.
+  void clear();
+
   void push(std::size_t column);
   void pop();
-
-  void clear() {
-    red_set_ = 0;
-    yellow_set_ = 0;
-    stack_.clear();
-    whose_turn_ = 1;
-
-    // The computer goes second unless the human presses the "Go Second" button.
-    favorite_ = 2;
-  }
 
   // Consistency check on the number of squares of each color.
   // Figure out whose turn it is based on those numbers.
@@ -114,11 +108,22 @@ class Board {
                                                             int alpha, int beta,
                                                             bool maximizing);
 
-  // 69 is the number of possible 4-in-a-row positions on the board.
-  using MaskArray = std::array<std::uint64_t, 69>;
+  // The number of possible 4-in-a-row positions on the board.
+  static constexpr std::size_t kNumFours = 69;
+  using MaskArray = std::array<std::uint64_t, kNumFours>;
 
   // Computes the winning masks at program startup.
   static MaskArray winning_masks();
+
+  // A map from the board position to the winning_masks that include that
+  // position.
+  using PartialWins = std::array<std::vector<std::size_t>, kNumRows * kNumCols>;
+
+  // Computes SomeName at program startup.
+  static PartialWins ComputePartialWins();
+
+  // For debugging. Tests the incremental maintenance of partial wins.
+  void CheckPartialWins();
 
   // Returns a string representation of the board.
   std::string image() const;
@@ -145,6 +150,14 @@ class Board {
   // "red" is player 1 and "yellow" is player 2.
   std::uint64_t red_set_ = 0;
   std::uint64_t yellow_set_ = 0;
+
+  // The number of pieces in each color in a partial win.
+  struct PieceCounts {
+    std::uint8_t red_count;
+    std::uint8_t yellow_count;
+  };
+
+  std::array<PieceCounts, kNumFours> partial_wins_;
 
   std::vector<Coord> stack_;
   unsigned int whose_turn_ = 1;

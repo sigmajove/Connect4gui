@@ -2,6 +2,7 @@
 
 #include <intrin.h>
 
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <format>
@@ -30,12 +31,90 @@ class nullstream : public std::ostream {
 // Returns a mask with a single bit set.
 inline std::uint64_t OneMask(std::size_t index) { return UINT64_C(1) << index; }
 
+// Converts back and forth between an index (range [0:42)) and
+// a (row, col) pair.
+inline std::size_t Index(std::size_t row, std::size_t col) {
+  assert(row < Board::kNumRows);
+  assert(col < Board::kNumCols);
+  return row * Board::kNumCols + col;
+}
+
+// Converts back and forth between an index (range [0:42)) and
+// a (row, col) pair.
+inline std::uint64_t Index(const Board::Coord &c) {
+  return c.first * Board::kNumCols + c.second;
+}
+
+Board::Coord FromIndex(std::size_t index) {
+  const std::size_t row = index / Board::kNumCols;
+  const std::size_t col = index % Board::kNumCols;
+  return std::make_pair(row, col);
+}
+
+const Board::MaskArray all_winning_masks = Board::winning_masks();
+
+Board::PartialWins Board::ComputePartialWins() {
+  PartialWins result;
+  for (std::vector<std::size_t> &v : result) {
+    v.reserve(16);
+  }
+  // Invert all_winning_masks.
+  // For every 1 bit in all_winning_masks[i], append an i into the vector
+  // corresponding to the position of that bit.
+  for (std::size_t i = 0; i < all_winning_masks.size(); ++i) {
+    const std::uint64_t mask = all_winning_masks[i];
+    for (std::size_t j = 0; j < result.size(); ++j) {
+      if ((mask >> j) & 1) {
+        result[j].push_back(i);
+      }
+    }
+  }
+  return result;
+}
+
+const Board::PartialWins all_partial_wins = Board::ComputePartialWins();
+
 void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
-  assert(row < kNumRows);
-  assert(col < kNumCols);
-  const std::size_t index = row * kNumCols + col;
-  assert(index < kNumValues);
-  const std::uint64_t mask = OneMask(index);
+  const std::size_t position = Index(row, col);
+  const std::vector<std::size_t> &needs_adjust = all_partial_wins[position];
+  const std::uint64_t mask = OneMask(position);
+
+  const std::size_t current_value =
+      (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
+
+  if (current_value == value) {
+    // No change.
+    return;
+  }
+  if (current_value == 0 && value == 1) {
+    // Increase red counts
+    for (const std::size_t i : needs_adjust) {
+      const auto increased = ++partial_wins_[i].red_count;
+      assert(increased <= 4);
+    }
+  } else if (current_value == 0 && value == 2) {
+    // Increase yellow counts
+    for (const std::size_t i : needs_adjust) {
+      const auto increased = ++partial_wins_[i].yellow_count;
+      assert(increased <= 4);
+    }
+  } else if (current_value == 1 && value == 0) {
+    // Decrease red counts
+    for (const std::size_t i : needs_adjust) {
+      const auto old_value = partial_wins_[i].red_count--;
+      assert(old_value > 0);
+    }
+  } else if (current_value == 2 && value == 0) {
+    // Decrease yellow counts
+    for (const std::size_t i : needs_adjust) {
+      const auto old_value = partial_wins_[i].yellow_count--;
+      assert(old_value > 0);
+    }
+  } else {
+    throw std::runtime_error(
+        std::format("Invalid transition {} to {}", current_value, value));
+  }
+
   std::uint64_t unmask = ~mask;
   switch (value) {
     case 0:
@@ -59,13 +138,25 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   }
 }
 
-unsigned int Board::get_value(std::size_t row, std::size_t col) const {
-  assert(row < kNumRows);
-  assert(col < kNumCols);
-  const std::size_t index = row * kNumCols + col;
-  assert(index < kNumValues);
+// Checks the consistency of partial_wins against the current
+// board position.
+void Board::CheckPartialWins() {
+  for (std::size_t i = 0; i < kNumFours; ++i) {
+    const std::uint64_t mask = all_winning_masks[i];
+    const int red_count = std::popcount(mask & red_set_);
+    const int yellow_count = std::popcount(mask & yellow_set_);
+    if (partial_wins_[i].red_count != red_count ||
+        partial_wins_[i].yellow_count != yellow_count) {
+      throw std::runtime_error(
+          std::format("Invalid count at {}: expected {}, {}, actual {} {}", i,
+                      red_count, yellow_count, partial_wins_[i].red_count,
+                      partial_wins_[i].yellow_count));
+    }
+  }
+}
 
-  const std::uint64_t mask = OneMask(index);
+unsigned int Board::get_value(std::size_t row, std::size_t col) const {
+  const std::uint64_t mask = OneMask(Index(row, col));
   return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
 }
 
@@ -95,14 +186,30 @@ void Board::set_whose_turn() {
   if ((red_set_ & yellow_set_) != 0) {
     throw std::runtime_error("red/yellow overlap");
   }
-  const auto red_count = __popcnt64(red_set_);
-  const auto yellow_count = __popcnt64(yellow_set_);
+  const int red_count = std::popcount(red_set_);
+  const int yellow_count = std::popcount(yellow_set_);
   if (red_count == yellow_count) {
     whose_turn_ = 1;
   } else if (red_count == yellow_count + 1) {
     whose_turn_ = 2;
   } else {
     throw std::runtime_error("red/yellow unbalanced");
+  }
+}
+
+void Board::clear() {
+  red_set_ = 0;
+  yellow_set_ = 0;
+  stack_.clear();
+  whose_turn_ = 1;
+
+  // The computer goes second unless the human presses the "Go Second"
+  // button.
+  favorite_ = 2;
+
+  for (PieceCounts &count : partial_wins_) {
+    count.red_count = 0;
+    count.yellow_count = 0;
   }
 }
 
@@ -120,9 +227,9 @@ void Board::push(std::size_t column) {
 
 void Board::pop() {
   assert(!stack_.empty());
+  whose_turn_ = 3 - whose_turn_;
   const auto [row, col] = stack_.back();
   set_value(row, col, 0);
-  whose_turn_ = 3 - whose_turn_;
   stack_.pop_back();
 }
 
@@ -156,18 +263,6 @@ void Board::combos(
   }
 }
 
-// Converts back and forth between an index (range [0:42)) and
-// a (row, col) pair.
-std::uint64_t Index(const Board::Coord &c) {
-  return c.first * Board::kNumCols + c.second;
-}
-
-Board::Coord FromIndex(std::size_t index) {
-  const std::size_t row = index / Board::kNumCols;
-  const std::size_t col = index % Board::kNumCols;
-  return std::make_pair(row, col);
-}
-
 Board::MaskArray Board::winning_masks() {
   Board::MaskArray result;
   std::size_t i = 0;
@@ -184,8 +279,6 @@ Board::MaskArray Board::winning_masks() {
 
   return result;
 }
-
-const Board::MaskArray all_winning_masks = Board::winning_masks();
 
 Board::Outcome Board::IsGameOver() const {
   Outcome result = Outcome::kDraw;
