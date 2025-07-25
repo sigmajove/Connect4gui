@@ -30,7 +30,7 @@ class nullstream : public std::ostream {
 // Returns a mask with a single bit set.
 inline std::uint64_t OneMask(std::size_t index) { return UINT64_C(1) << index; }
 
-void Board::set_value(std::size_t row, std::size_t col, uint8_t value) {
+void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   assert(row < kNumRows);
   assert(col < kNumCols);
   const std::size_t index = row * kNumCols + col;
@@ -55,11 +55,11 @@ void Board::set_value(std::size_t row, std::size_t col, uint8_t value) {
       yellow_set_ |= mask;
       break;
     default:
-      throw std::runtime_error(std::format("Bad set value {}", value));
+      throw std::runtime_error(std::format("Bad value {}", value));
   }
 }
 
-std::uint8_t Board::get_value(std::size_t row, std::size_t col) const {
+unsigned int Board::get_value(std::size_t row, std::size_t col) const {
   assert(row < kNumRows);
   assert(col < kNumCols);
   const std::size_t index = row * kNumCols + col;
@@ -89,6 +89,21 @@ std::size_t Board::drop(std::size_t column) {
     }
   }
   throw std::runtime_error("Column is full");
+}
+
+void Board::set_whose_turn() {
+  if ((red_set_ & yellow_set_) != 0) {
+    throw std::runtime_error("red/yellow overlap");
+  }
+  const auto red_count = __popcnt64(red_set_);
+  const auto yellow_count = __popcnt64(yellow_set_);
+  if (red_count == yellow_count) {
+    whose_turn_ = 1;
+  } else if (red_count == yellow_count + 1) {
+    whose_turn_ = 2;
+  } else {
+    throw std::runtime_error("red/yellow unbalanced");
+  }
 }
 
 void Board::push(std::size_t column) {
@@ -262,6 +277,7 @@ std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
       }
     }
   }
+
   switch (other_count) {
     case 0:
       return std::make_pair(0, ThreeKind::kNone);
@@ -273,16 +289,16 @@ std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
 }
 
 int Board::heuristic() const {
-  const std::uint8_t other = 3 - favorite_;
+  const unsigned int other = 3 - favorite_;
   bool four_for_me = false;
   bool four_for_him = false;
   int score = 0;
   combos([other, &four_for_me, &four_for_him, &score, this](Coord a, Coord b,
                                                             Coord c, Coord d) {
-    const std::uint8_t ac = get_value(a.first, a.second);
-    const std::uint8_t bc = get_value(b.first, b.second);
-    const std::uint8_t cc = get_value(c.first, c.second);
-    const std::uint8_t dc = get_value(d.first, d.second);
+    const unsigned int ac = get_value(a.first, a.second);
+    const unsigned int bc = get_value(b.first, b.second);
+    const unsigned int cc = get_value(c.first, c.second);
+    const unsigned int dc = get_value(d.first, d.second);
 
     const int mine = (ac == favorite_) + (bc == favorite_) + (cc == favorite_) +
                      (dc == favorite_);
@@ -394,7 +410,124 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
   }
 }
 
-std::pair<int, std::vector<std::size_t> > Board::alpha_beta_trace(
+Board::BruteForceResult Board::Reverse(BruteForceResult outcome) const {
+  switch (outcome) {
+    case BruteForceResult::kWin:
+      return BruteForceResult::kLose;
+    case BruteForceResult::kLose:
+      return BruteForceResult::kWin;
+    case BruteForceResult::kDraw:
+      return BruteForceResult::kDraw;
+    default:
+      throw std::runtime_error(
+          std::format("Bad outcome {}", static_cast<int>(outcome)));
+  }
+}
+
+const char *DebugImage(Board::ThreeKind c) {
+  switch (c) {
+    case Board::ThreeKind::kNone:
+      return "None";
+    case Board::ThreeKind::kWin:
+      return "Win";
+    case Board::ThreeKind::kBlock:
+      return "Block";
+    case Board::ThreeKind::kLose:
+      return "Lose";
+    default:
+      return "bad";
+  }
+}
+
+const char *DebugImage(Board::BruteForceResult c) {
+  switch (c) {
+    case Board::BruteForceResult::kWin:
+      return "Win";
+    case Board::BruteForceResult::kDraw:
+      return "Block";
+    case Board::BruteForceResult::kLose:
+      return "Lose";
+    default:
+      return "bad";
+  }
+}
+
+std::string DebugImage(std::vector<std::size_t> v) {
+  if (v.empty()) {
+    return "<empty>";
+  }
+  std::ostringstream oss;
+  bool need_pad = false;
+  for (const std::size_t item : v) {
+    if (need_pad) {
+      oss << " ";
+    } else {
+      need_pad = true;
+    }
+    oss << item;
+  }
+  return oss.str();
+}
+
+static int counter = 0;
+std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
+    double budget, std::uint8_t me) {
+  const int id = ++counter;
+  const auto [move, outcome] = ThreeInARow(me);
+  switch (outcome) {
+    case ThreeKind::kNone:
+      break;
+    case ThreeKind::kWin: {
+      return std::make_pair(BruteForceResult::kWin,
+                            std::vector<std::size_t>(1, move));
+    }
+    case ThreeKind::kLose: {
+      return std::make_pair(BruteForceResult::kLose,
+                            std::vector<std::size_t>(1, move));
+    }
+    case ThreeKind::kBlock: {
+      push(move);
+      auto [forced, path] = BruteForce(budget, 3 - me);
+      pop();
+      path.insert(path.begin(), move);
+      if (stack_.empty()) {
+        std::cout << "Evaluated " << counter << " boards\n";
+      }
+      return std::make_pair(Reverse(forced), path);
+    }
+    default:
+      throw std::runtime_error("Bad outcome value");
+  }
+  const auto moves = legal_moves();
+  if (moves.empty()) {
+    return std::make_pair(BruteForceResult::kDraw, std::vector<std::size_t>());
+  }
+  if (budget < 1.0) {
+    throw std::runtime_error(
+        std::format("Ran out of budget with {} pieces placed", HowFull()));
+  }
+  budget = (budget - 1) / moves.size();
+  BruteForceResult best = BruteForceResult::kWin;
+  std::vector<size_t> best_path;
+  std::size_t best_move = 9999;
+  for (const std::size_t move : moves) {
+    push(move);
+    const auto [eval, path] = BruteForce(budget, 3 - me);
+    pop();
+    if (eval >= best) {
+      best = eval;
+      best_path = path;
+      best_move = move;
+    }
+  }
+  best_path.insert(best_path.begin(), best_move);
+  if (stack_.empty()) {
+    std::cout << "Evaluated " << counter << " boards\n";
+  }
+  return std::make_pair(Reverse(best), best_path);
+}
+
+std::pair<int, std::vector<std::size_t>> Board::alpha_beta_trace(
     std::size_t depth, int alpha, int beta, bool maximizing) {
   nullstream discard;
   std::ostream *const trace = &discard;

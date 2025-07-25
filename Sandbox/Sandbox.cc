@@ -4,15 +4,17 @@
 
 int main() {
   Board b;
-  const auto [value, path] =
-      b.alpha_beta_trace(/*depth=*/10,
-                         /*alpha=*/std::numeric_limits<int>::min(),
-                         /*beta=*/std::numeric_limits<int>::max(),
-                         /*maximizing=*/true);
+  try {
+    const auto [eval, path] = b.BruteForce(1e26, 1);
 
-  for (std::size_t col : path) {
-    std::cout << col << "\n";
-    b.drop(col);
-    std::cout << b.image() << '\n';
+    std::cout << "Result " << static_cast<int>(eval) << "\n";
+    std::cout << "Path size " << path.size();
+    for (std::size_t col : path) {
+      std::cout << col << "\n";
+    }
+  } catch (const std::exception& e) {
+    std::cout << "Error " << e.what() << "\n";
+  } catch (...) {
+    std::cout << "Unknown exception\n";
   }
 }

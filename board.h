@@ -1,10 +1,12 @@
 #pragma once
 
+#include <intrin.h>
+
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <utility>
@@ -36,6 +38,9 @@ class Board {
     favorite_ = player;
   }
 
+  // Returns the number of pieces on the board.
+  std::size_t HowFull() const { return __popcnt64(red_set_ | yellow_set_); }
+
   uint8_t favorite() const { return favorite_; }
 
   // Just compares the values of the squares.
@@ -44,8 +49,8 @@ class Board {
   }
 
   // Set and Get functions.
-  void set_value(std::size_t row, std::size_t col, uint8_t value);
-  std::uint8_t get_value(std::size_t row, std::size_t col) const;
+  void set_value(std::size_t row, std::size_t col, unsigned int value);
+  unsigned int get_value(std::size_t row, std::size_t col) const;
 
   // Returns the columns where drop and push are valid.
   std::vector<std::size_t> legal_moves() const;
@@ -65,6 +70,10 @@ class Board {
     // The computer goes second unless the human presses the "Go Second" button.
     favorite_ = 2;
   }
+
+  // Consistency check on the number of squares of each color.
+  // Figure out whose turn it is based on those numbers.
+  void set_whose_turn();
 
   enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
   Outcome IsGameOver() const;
@@ -114,11 +123,17 @@ class Board {
   // Returns a string representation of the board.
   std::string image() const;
 
+  enum class BruteForceResult { kWin, kDraw, kLose };
+  std::pair<BruteForceResult, std::vector<std::size_t>> BruteForce(
+      double budget, std::uint8_t me);
+
  private:
   // The recursive function that performs alpha-beta minimax restricted
   // to the given depth.
   int alpha_beta_helper(std::size_t depth, int alpha, int beta,
                         bool maximizing);
+
+  BruteForceResult Reverse(BruteForceResult outcome) const;
 
   static constexpr std::size_t kNumValues = kNumRows * kNumCols;
   static constexpr std::size_t kBitsPerValue = 2;
@@ -132,8 +147,8 @@ class Board {
   std::uint64_t yellow_set_ = 0;
 
   std::vector<Coord> stack_;
-  uint8_t whose_turn_ = 1;
+  unsigned int whose_turn_ = 1;
 
   // The payer we want to win.
-  uint8_t favorite_ = 1;
+  unsigned int favorite_ = 1;
 };

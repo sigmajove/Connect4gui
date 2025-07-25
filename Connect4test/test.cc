@@ -638,3 +638,50 @@ TEST(ThreeInRow, LoseTwo) {
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
 }
 
+TEST(BruteForce, RedLoses) {
+  Board b = parse(R"(
+....211
+....122
+2...211
+1..2122
+2.11212
+1121122
+)");
+  b.set_whose_turn();
+  const auto [result, path] = b.BruteForce(1e7, 1);
+  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  const std::vector<std::size_t> expected = {3, 3};
+  EXPECT_EQ(path, expected);
+}
+
+TEST(BruteForce, YellowWins) {
+  Board b = parse(R"(
+2......
+1.....1
+2.....1
+1...212
+2212121
+1112212
+)");
+  b.set_whose_turn();
+  const auto [result, path] = b.BruteForce(1e18, 2);
+  EXPECT_EQ(result, Board::BruteForceResult::kWin);
+  const std::vector<std::size_t> expected = {6, 5, 4, 5, 5, 4, 4, 3, 3};
+  EXPECT_EQ(path, expected);
+}
+
+TEST(BruteForce, OneMore) {
+  Board b = parse(R"(
+...1...
+...21..
+.2.22.1
+.1.12.2
+22.2111
+1112122
+)");
+  b.set_whose_turn();
+  const auto [result, path] = b.BruteForce(1e18, 1);
+  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
+  EXPECT_EQ(path, expected);
+}
