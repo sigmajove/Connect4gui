@@ -50,7 +50,7 @@ class Cache {
   int hash_shift() const { return hash_shift_; }
 
  private:
-  // Returns a value in the range [0, kHashSize).
+  // Returns a value in the range [0, table_size).
   std::size_t HashKeys(std::uint64_t key1, std::uint64_t key2);
 
   struct Node {
