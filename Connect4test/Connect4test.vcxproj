@@ -103,6 +103,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\board.cc" />
+    <ClCompile Include="..\cache.cc" />
     <ClCompile Include="test.cc" />
   </ItemGroup>
   <ItemGroup>
@@ -110,6 +111,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\board.h" />
+    <ClInclude Include="..\cache.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
