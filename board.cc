@@ -231,22 +231,37 @@ void Board::clear() {
 #endif
 }
 
-void Board::push(std::size_t column) {
-  for (std::size_t row = 0; row < kNumRows; ++row) {
-    if (get_value(row, column) == 0) {
-      if (stack_size_ >= kBoardSize) {
-        throw std::runtime_error("Stack overflow");
-      }
-      new_stack_[stack_size_].red_set = red_set_;
-      new_stack_[stack_size_].yellow_set = yellow_set_;
-      ++stack_size_;
-
-      set_value(row, column, whose_turn_);
-      whose_turn_ = 3 - whose_turn_;
-      return;
-    }
+std::uint64_t Board::CreateColumnMask() {
+  std::uint64_t result = 0;
+  for (std::size_t index = 0; index < kBoardSize; index += kNumCols) {
+    result |= OneMask(index);
   }
-  throw std::runtime_error("Column is full");
+  return result;
+}
+
+const std::uint64_t column_mask = Board::CreateColumnMask();
+
+void Board::push(std::size_t column) {
+  unsigned long bit_pos;
+  const auto success = _BitScanForward64(
+      &bit_pos, ~(red_set_ | yellow_set_) & (column_mask << column));
+  if (success == 0) {
+    throw std::runtime_error("Column is full");
+  }
+  if (stack_size_ >= kBoardSize) {
+    throw std::runtime_error("Stack overflow");
+  }
+  new_stack_[stack_size_].red_set = red_set_;
+  new_stack_[stack_size_].yellow_set = yellow_set_;
+  ++stack_size_;
+
+  const std::uint64_t mask = OneMask(bit_pos);
+  if (whose_turn_ == 1) {
+    red_set_ |= mask;
+  } else {
+    yellow_set_ |= mask;
+  }
+  whose_turn_ = 3 - whose_turn_;
 }
 
 void Board::pop() {

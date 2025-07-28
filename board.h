@@ -120,6 +120,8 @@ class Board {
   // Computes the winning masks at program startup.
   static MaskArray winning_masks();
 
+  static std::uint64_t CreateColumnMask();
+
   // A map from the board position to the winning_masks that include that
   // position.
   using PartialWins = std::array<std::vector<std::size_t>, kNumRows * kNumCols>;
