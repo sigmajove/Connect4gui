@@ -43,6 +43,7 @@ class Board {
   std::size_t HowFull() const { return __popcnt64(red_set_ | yellow_set_); }
 
   uint8_t favorite() const { return favorite_; }
+  unsigned int whose_turn() const { return whose_turn_; }
 
   // Just compares the values of the squares.
   friend bool operator==(const Board& lhs, const Board& rhs) {
@@ -52,6 +53,10 @@ class Board {
   // Set and Get functions.
   void set_value(std::size_t row, std::size_t col, unsigned int value);
   unsigned int get_value(std::size_t row, std::size_t col) const;
+
+  // Returns the number of legal moves, and writes them into moves.
+  // More efficient than returning a vector, and it matters.
+  std::size_t LegalMoves(std::size_t (&moves)[kNumCols]) const;
 
   // Returns the columns where drop and push are valid.
   std::vector<std::size_t> legal_moves() const;
@@ -132,6 +137,9 @@ class Board {
   std::pair<BruteForceResult, std::vector<std::size_t>> BruteForce(
       double budget, std::uint8_t me);
 
+  std::pair<BruteForceResult, std::size_t> BruteForce3(
+      double budget, std::uint8_t me);
+
  private:
   // The recursive function that performs alpha-beta minimax restricted
   // to the given depth.
@@ -161,7 +169,13 @@ class Board {
   std::array<PieceCounts, kNumFours> partial_wins_;
 #endif
 
-  std::vector<Coord> stack_;
+  struct Data {
+    std::uint64_t red_set;
+    std::uint64_t yellow_set;
+  };
+  Data new_stack_[kBoardSize];
+  std::size_t stack_size_ = 0;
+
   unsigned int whose_turn_ = 1;
 
   // The payer we want to win.

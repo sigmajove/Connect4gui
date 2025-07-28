@@ -274,6 +274,51 @@ TEST_F(ParseTest, Parse8) {
       2, 9);
 };
 
+TEST(LegalMoves, NoMoves) {
+  Board b = parse(R"(
+1122112
+1..1...
+2..2...
+2..11..
+1..122.
+2..2122
+)");
+  std::size_t moves[Board::kNumCols];
+  const std::size_t n = b.LegalMoves(moves);
+  EXPECT_EQ(n, 0);
+};
+
+TEST(LegalMoves, ThreeMoves) {
+  Board b = parse(R"(
+1..2.12
+1..1...
+2..2...
+2..11..
+1..122.
+2..2122
+)");
+  std::size_t moves[Board::kNumCols];
+  const std::size_t n = b.LegalMoves(moves);
+  EXPECT_EQ(n, 3);
+  EXPECT_EQ(moves[0], 1);
+  EXPECT_EQ(moves[1], 2);
+  EXPECT_EQ(moves[2], 4);
+};
+
+TEST(LegalMoves, AllMoves) {
+  Board b;
+  std::size_t moves[Board::kNumCols];
+  const std::size_t n = b.LegalMoves(moves);
+  EXPECT_EQ(n, 7);
+  EXPECT_EQ(moves[0], 0);
+  EXPECT_EQ(moves[1], 1);
+  EXPECT_EQ(moves[2], 2);
+  EXPECT_EQ(moves[3], 3);
+  EXPECT_EQ(moves[4], 4);
+  EXPECT_EQ(moves[5], 5);
+  EXPECT_EQ(moves[6], 6);
+};
+
 TEST(Game, PushPop) {
   Board b;
   b.push(5);
@@ -644,6 +689,67 @@ TEST(ThreeInRow, LoseTwo) {
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
 }
 
+std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(Board &b) {
+  std::vector<std::size_t> result;
+  for (;;) {
+    const Board::Outcome outcome = b.IsGameOver();
+    if (outcome != Board::Outcome::kContested) {
+      return std::make_pair(outcome, result);
+    }
+    auto [_, move] = b.BruteForce3(1e18, b.whose_turn());
+    b.push(move);
+    result.push_back(move);
+  }
+}
+
+TEST(PlayTest, YellowIn2) {
+  Board b = parse(R"(
+....211
+....122
+2...211
+1..2122
+2.11212
+1121122
+)");
+  b.set_whose_turn();
+  auto [outcome, path] = PlaySelfTest(b);
+  EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
+  const std::vector<std::size_t> expected = {3, 3};
+  EXPECT_EQ(path, expected);
+}
+
+TEST(PlayTest, YellowIn6) {
+  Board b = parse(R"(
+2......
+1.....1
+2.....1
+1...212
+2212121
+1112212
+)");
+  b.set_whose_turn();
+  auto [outcome, path] = PlaySelfTest(b);
+  EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
+  const std::vector<std::size_t> expected = {6, 5, 4, 5, 5, 4, 4, 3, 3};
+  EXPECT_EQ(path, expected);
+}
+
+TEST(PlayTest, YellowIn10) {
+  Board b = parse(R"(
+...1...
+...21..
+.2.22.1
+.1.12.2
+22.2111
+1112122
+)");
+  b.set_whose_turn();
+  auto [outcome, path] = PlaySelfTest(b);
+  EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
+  const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
+  EXPECT_EQ(path, expected);
+}
+
 TEST(BruteForce, RedLoses) {
   Board b = parse(R"(
 ....211
@@ -690,6 +796,21 @@ TEST(BruteForce, OneMore) {
   EXPECT_EQ(result, Board::BruteForceResult::kLose);
   const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
   EXPECT_EQ(path, expected);
+}
+
+TEST(BruteForce, OneMore3) {
+  Board b = parse(R"(
+...1...
+...21..
+.2.22.1
+.1.12.2
+22.2111
+1112122
+)");
+  b.set_whose_turn();
+  const auto [result, move] = b.BruteForce3(1e18, 1);
+  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  EXPECT_EQ(move, 2);
 }
 
 struct CacheData {

@@ -159,10 +159,21 @@ void Board::CheckPartialWins() {
 #endif
 }
 
-
 unsigned int Board::get_value(std::size_t row, std::size_t col) const {
   const std::uint64_t mask = OneMask(Index(row, col));
   return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
+}
+
+std::size_t Board::LegalMoves(std::size_t (&moves)[kNumCols]) const {
+  const std::uint64_t all_bits = red_set_ | yellow_set_;
+  static constexpr std::size_t offset = (kNumRows - 1) * (kNumCols);
+  std::size_t count = 0;
+  for (std::size_t col = 0; col < kNumCols; ++col) {
+    if ((all_bits & OneMask(offset + col)) == 0) {
+      moves[count++] = col;
+    }
+  }
+  return count;
 }
 
 std::vector<std::size_t> Board::legal_moves() const {
@@ -205,7 +216,7 @@ void Board::set_whose_turn() {
 void Board::clear() {
   red_set_ = 0;
   yellow_set_ = 0;
-  stack_.clear();
+  stack_size_ = 0;
   whose_turn_ = 1;
 
   // The computer goes second unless the human presses the "Go Second"
@@ -223,21 +234,29 @@ void Board::clear() {
 void Board::push(std::size_t column) {
   for (std::size_t row = 0; row < kNumRows; ++row) {
     if (get_value(row, column) == 0) {
+      if (stack_size_ >= kBoardSize) {
+        throw std::runtime_error("Stack overflow");
+      }
+      new_stack_[stack_size_].red_set = red_set_;
+      new_stack_[stack_size_].yellow_set = yellow_set_;
+      ++stack_size_;
+
       set_value(row, column, whose_turn_);
-      stack_.emplace_back(row, column);
       whose_turn_ = 3 - whose_turn_;
       return;
     }
   }
-  assert(false);
+  throw std::runtime_error("Column is full");
 }
 
 void Board::pop() {
-  assert(!stack_.empty());
+  if (stack_size_ == 0) {
+    throw std::runtime_error("Stack underflow");
+  }
   whose_turn_ = 3 - whose_turn_;
-  const auto [row, col] = stack_.back();
-  set_value(row, col, 0);
-  stack_.pop_back();
+  --stack_size_;
+  red_set_ = new_stack_[stack_size_].red_set;
+  yellow_set_ = new_stack_[stack_size_].yellow_set;
 }
 
 void Board::combos(
@@ -572,6 +591,9 @@ std::string DebugImage(std::vector<std::size_t> v) {
 static int counter = 0;
 std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
     double budget, std::uint8_t me) {
+  if (stack_size_ == 0) {
+    counter = 0;
+  }
   const int id = ++counter;
   const auto [move, outcome] = ThreeInARow(me);
   switch (outcome) {
@@ -590,7 +612,7 @@ std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
       auto [forced, path] = BruteForce(budget, 3 - me);
       pop();
       path.insert(path.begin(), move);
-      if (stack_.empty()) {
+      if (stack_size_ == 0) {
         std::cout << "Evaluated " << counter << " boards\n";
       }
       return std::make_pair(Reverse(forced), path);
@@ -598,33 +620,172 @@ std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
     default:
       throw std::runtime_error("Bad outcome value");
   }
-  const auto moves = legal_moves();
-  if (moves.empty()) {
+
+  std::size_t moves[kNumCols];
+  const std::size_t num_moves = LegalMoves(moves);
+  if (num_moves == 0) {
     return std::make_pair(BruteForceResult::kDraw, std::vector<std::size_t>());
   }
   if (budget < 1.0) {
     throw std::runtime_error(
         std::format("Ran out of budget with {} pieces placed", HowFull()));
   }
-  budget = (budget - 1) / moves.size();
+  budget = (budget - 1) / num_moves;
   BruteForceResult best = BruteForceResult::kWin;
   std::vector<size_t> best_path;
   std::size_t best_move = 9999;
-  for (const std::size_t move : moves) {
-    push(move);
+  for (std::size_t i = 0; i < num_moves; ++i) {
+    const std::size_t m = moves[i];
+    push(m);
     const auto [eval, path] = BruteForce(budget, 3 - me);
     pop();
     if (eval >= best) {
       best = eval;
       best_path = path;
-      best_move = move;
+      best_move = m;
     }
   }
   best_path.insert(best_path.begin(), best_move);
-  if (stack_.empty()) {
+  if (stack_size_ == 0) {
     std::cout << "Evaluated " << counter << " boards\n";
   }
   return std::make_pair(Reverse(best), best_path);
+}
+
+std::pair<Board::BruteForceResult, std::size_t> Board::BruteForce3(
+    double budget_input, std::uint8_t me_input) {
+  struct StackFrame {
+    StackFrame(double budget, std::uint8_t me) : budget(budget), me(me) {}
+
+    // Input parameters
+    double budget;
+    std::uint8_t me;
+
+    bool looping;
+
+    // Only used when looping is true
+    std::size_t moves[kNumCols];
+    std::size_t num_moves;
+    std::size_t current_move;
+
+    BruteForceResult best;
+    std::size_t best_move;
+  };
+
+  std::vector<StackFrame> restack;  // The recursion stack.
+
+  // Global to all levels of recursion.
+  std::size_t board_counter = 0;
+
+  // Input parameters to recursive call.
+  // These get saved the beginning of a call and
+  // restored after a return.
+  double budget_parm = budget_input;
+  std::uint8_t me_parm = me_input;
+
+  // Return parameters from recursive call.
+  // Must be set before going to do_return.
+  BruteForceResult return_outcome;
+  std::size_t return_move;
+
+do_call:
+  // Recursive call.
+  // Set up new stack frame.
+  ++board_counter;
+#if 0
+  std::cout << "Call " << board_counter << " budget " << budget_parm;
+  for (const auto &frame : restack) {
+    if (frame.looping) {
+      std::cout << " " << *frame.current_move;
+    } else {
+      std::cout << " " << frame.best_move;
+    }
+  }
+  std::cout << "\n";
+#endif
+
+  restack.emplace_back(budget_parm, me_parm);
+  const auto [move, outcome] = ThreeInARow(me_parm);
+
+  switch (outcome) {
+    case ThreeKind::kNone: {
+      StackFrame &top = restack.back();
+      top.looping = true;
+      top.num_moves = LegalMoves(top.moves);
+      if (top.num_moves == 0) {
+        return_outcome = BruteForceResult::kDraw;
+        return_move = move;  // ?
+        goto do_return;
+      }
+      if (budget_parm < 1.0) {
+        throw std::runtime_error(
+            std::format("Ran out of budget with {} pieces placed", HowFull()));
+      }
+      budget_parm = (budget_parm - 1) / top.num_moves;
+      top.budget = budget_parm;
+
+      // Initialize the loop.
+      top.best = BruteForceResult::kWin;
+      top.best_move = 9999;
+      top.current_move = 0;
+      push(top.moves[0]);
+      me_parm = 3 - me_parm;
+      goto do_call;
+    }
+    case ThreeKind::kWin: {
+      return_outcome = BruteForceResult::kWin;
+      return_move = move;
+      goto do_return;
+    }
+    case ThreeKind::kLose: {
+      return_outcome = BruteForceResult::kLose;
+      return_move = move;
+      goto do_return;
+    }
+    case ThreeKind::kBlock: {
+      push(move);
+      restack.back().looping = false;
+      restack.back().best_move = move;
+      me_parm = 3 - me_parm;
+      goto do_call;
+    }
+    default:
+      throw std::runtime_error("Bad outcome value");
+  }
+
+do_return:
+  // Recursive return.
+  restack.pop_back();
+
+  if (restack.empty()) {
+    std::cout << "Evaluated " << board_counter << " boards\n";
+    return std::make_pair(return_outcome, return_move);
+  }
+  budget_parm = restack.back().budget;
+  me_parm = restack.back().me;
+
+  pop();
+
+  if (restack.back().looping) {
+    StackFrame &top = restack.back();
+    if (return_outcome >= top.best) {
+      top.best = return_outcome;
+      top.best_move = top.moves[top.current_move];
+    }
+    if (++top.current_move == top.num_moves) {
+      return_outcome = Reverse(top.best);
+      return_move = top.best_move;
+      goto do_return;
+    }
+    push(top.moves[top.current_move]);
+    me_parm = 3 - me_parm;
+    goto do_call;
+  }
+
+  // Return from forced move.
+  return_move = restack.back().best_move;
+  return_outcome = Reverse(return_outcome);
+  goto do_return;
 }
 
 std::pair<int, std::vector<std::size_t>> Board::alpha_beta_trace(
