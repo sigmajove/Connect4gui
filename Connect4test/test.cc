@@ -165,6 +165,10 @@ class ParseTest : public testing::Test {
  protected:
   static void test(const std::string &image, std::uint8_t player,
                    std::size_t count) {
+    const Board::Position pos = Board::ParsePosition(image);
+    EXPECT_EQ(image[0], '\n');
+    EXPECT_EQ(pos.image(), image.substr(1));
+
     const Board board = parse(image);
     EXPECT_EQ(num_winners(board, player), count);
   }
@@ -577,8 +581,12 @@ TEST(Eval, PlaySelf) {
   EXPECT_TRUE(b == golden);
 }
 
+Board::BoardMask BuildMask(std::size_t row, std::size_t col) {
+  return UINT64_C(1) << (7 * row + col);
+}
+
 TEST(ThreeInRow, Empty) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -586,13 +594,13 @@ TEST(ThreeInRow, Empty) {
 .......
 .......
 )");
-  const auto result = b.ThreeInARow(1);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 1);
   EXPECT_EQ(result.first, 0);
   EXPECT_EQ(result.second, Board::ThreeKind::kNone);
 }
 
 TEST(ThreeInRow, None) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -600,13 +608,13 @@ TEST(ThreeInRow, None) {
 2112212
 1212121
 )");
-  const auto result = b.ThreeInARow(1);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 1);
   EXPECT_EQ(result.first, 0);
   EXPECT_EQ(result.second, Board::ThreeKind::kNone);
 }
 
 TEST(ThreeInRow, WinOne) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -614,13 +622,13 @@ TEST(ThreeInRow, WinOne) {
 .2..2..
 .1.11..
 )");
-  const auto result = b.ThreeInARow(1);
-  EXPECT_EQ(result.first, 2);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 1);
+  EXPECT_EQ(result.first, BuildMask(0, 2));
   EXPECT_EQ(result.second, Board::ThreeKind::kWin);
 }
 
 TEST(ThreeInRow, OneFilled) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -628,13 +636,13 @@ TEST(ThreeInRow, OneFilled) {
 .2..2..
 .1211..
 )");
-  const auto result = b.ThreeInARow(1);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 1);
   EXPECT_EQ(result.first, 0);
   EXPECT_EQ(result.second, Board::ThreeKind::kNone);
 }
 
 TEST(ThreeInRow, WinTwo) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 ....2..
@@ -642,13 +650,13 @@ TEST(ThreeInRow, WinTwo) {
 .2..2..
 .1.11..
 )");
-  const auto result = b.ThreeInARow(2);
-  EXPECT_EQ(result.first, 4);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
+  EXPECT_EQ(result.first, BuildMask(4, 4));
   EXPECT_EQ(result.second, Board::ThreeKind::kWin);
 }
 
 TEST(ThreeInRow, BlockTwo) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -656,13 +664,13 @@ TEST(ThreeInRow, BlockTwo) {
 .2..2..
 .1.11..
 )");
-  const auto result = b.ThreeInARow(2);
-  EXPECT_EQ(result.first, 2);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
+  EXPECT_EQ(result.first, BuildMask(0, 2));
   EXPECT_EQ(result.second, Board::ThreeKind::kBlock);
 }
 
 TEST(ThreeInRow, NoSupport) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -670,13 +678,13 @@ TEST(ThreeInRow, NoSupport) {
 .212...
 .1212..
 )");
-  const auto result = b.ThreeInARow(2);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
   EXPECT_EQ(result.first, 0);
   EXPECT_EQ(result.second, Board::ThreeKind::kNone);
 }
 
 TEST(ThreeInRow, LoseTwo) {
-  const Board b = parse(R"(
+  const Board::Position b = Board::ParsePosition(R"(
 .......
 .......
 .......
@@ -684,26 +692,67 @@ TEST(ThreeInRow, LoseTwo) {
 .2..1..
 21.112.
 )");
-  const auto result = b.ThreeInARow(2);
-  EXPECT_EQ(result.first, 4);
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
+  EXPECT_EQ(result.first, BuildMask(0, 2));
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
 }
 
-std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(Board &b) {
+TEST(ThreeInRow, Linear) {
+  const Board::Position b = Board::ParsePosition(R"(
+2...211
+1...122
+21..211
+12.2122
+2111212
+1121122
+)");
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
+  EXPECT_EQ(result.first, BuildMask(2, 2));
+  EXPECT_EQ(result.second, Board::ThreeKind::kBlock);
+}
+
+TEST(ThreeInRow, HorizonalThree) {
+  const Board::Position b = Board::ParsePosition(R"(
+.......
+.......
+.......
+.......
+.111...
+2221122
+)");
+  const auto result = Board::ThreeInARow2(b.red_set, b.yellow_set, 2);
+  EXPECT_EQ(result.first, BuildMask(1, 0));
+  EXPECT_EQ(result.second, Board::ThreeKind::kLose);
+}
+
+std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(
+    Board::Position &p) {
   std::vector<std::size_t> result;
   for (;;) {
-    const Board::Outcome outcome = b.IsGameOver();
+    std::cout << "====\n" << p.image() << "====\n\n";
+    const Board::Outcome outcome = p.IsGameOver();
     if (outcome != Board::Outcome::kContested) {
+      std::cout << "Outcome "
+                << Board::outcome_image[static_cast<std::size_t>(outcome)]
+                << "\n";
       return std::make_pair(outcome, result);
     }
-    auto [_, move] = b.BruteForce3(1e18, b.whose_turn());
-    b.push(move);
-    result.push_back(move);
+    auto [_, move] = Board::BruteForce4(p, 1e18);
+    switch (p.WhoseTurn()) {
+      case 1:
+        p.red_set |= move;
+        break;
+      case 2:
+        p.yellow_set |= move;
+        break;
+    }
+    std::cout << "Move " << MaskImage(move) << "\n";
+    result.push_back(MaskColumn(move));
   }
 }
 
 TEST(PlayTest, YellowIn2) {
-  Board b = parse(R"(
+  Board::Position p = Board::ParsePosition(R"(
 ....211
 ....122
 2...211
@@ -711,15 +760,14 @@ TEST(PlayTest, YellowIn2) {
 2.11212
 1121122
 )");
-  b.set_whose_turn();
-  auto [outcome, path] = PlaySelfTest(b);
+  auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
   const std::vector<std::size_t> expected = {3, 3};
   EXPECT_EQ(path, expected);
 }
 
 TEST(PlayTest, YellowIn6) {
-  Board b = parse(R"(
+  Board::Position p = Board::ParsePosition(R"(
 2......
 1.....1
 2.....1
@@ -727,15 +775,15 @@ TEST(PlayTest, YellowIn6) {
 2212121
 1112212
 )");
-  b.set_whose_turn();
-  auto [outcome, path] = PlaySelfTest(b);
+  auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
-  const std::vector<std::size_t> expected = {6, 5, 4, 5, 5, 4, 4, 3, 3};
+  const std::vector<std::size_t> expected = {4, 6, 5, 5, 5, 4, 3, 3, 3, 4,
+                                             3, 2, 2, 1, 1, 1, 1, 2, 2};
   EXPECT_EQ(path, expected);
 }
 
 TEST(PlayTest, YellowIn10) {
-  Board b = parse(R"(
+  Board::Position p = Board::ParsePosition(R"(
 ...1...
 ...21..
 .2.22.1
@@ -743,8 +791,7 @@ TEST(PlayTest, YellowIn10) {
 22.2111
 1112122
 )");
-  b.set_whose_turn();
-  auto [outcome, path] = PlaySelfTest(b);
+  auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
   const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
   EXPECT_EQ(path, expected);
@@ -766,8 +813,23 @@ TEST(BruteForce, RedLoses) {
   EXPECT_EQ(path, expected);
 }
 
+TEST(BruteForce, Simple) {
+  Board::Position p = Board::ParsePosition(R"(
+....211
+....122
+2...211
+1..2122
+2.11212
+1121122
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  EXPECT_EQ(move, BuildMask(3, 3));
+}
+
 TEST(BruteForce, YellowWins) {
-  Board b = parse(R"(
+  Board::Position p = Board::ParsePosition(R"(
 2......
 1.....1
 2.....1
@@ -775,11 +837,10 @@ TEST(BruteForce, YellowWins) {
 2212121
 1112212
 )");
-  b.set_whose_turn();
-  const auto [result, path] = b.BruteForce(1e18, 2);
-  EXPECT_EQ(result, Board::BruteForceResult::kWin);
-  const std::vector<std::size_t> expected = {6, 5, 4, 5, 5, 4, 4, 3, 3};
-  EXPECT_EQ(path, expected);
+  EXPECT_EQ(p.WhoseTurn(), 2);
+  const auto [result, move] = Board::BruteForce4(p, 1e13);
+  EXPECT_EQ(DebugImage(result), "Win");
+  EXPECT_EQ(MaskImage(move), "Row 3 Col 4");
 }
 
 TEST(BruteForce, OneMore) {
@@ -798,8 +859,8 @@ TEST(BruteForce, OneMore) {
   EXPECT_EQ(path, expected);
 }
 
-TEST(BruteForce, OneMore3) {
-  Board b = parse(R"(
+TEST(BruteForce, OneMore4) {
+  Board::Position p = Board::ParsePosition(R"(
 ...1...
 ...21..
 .2.22.1
@@ -807,10 +868,10 @@ TEST(BruteForce, OneMore3) {
 22.2111
 1112122
 )");
-  b.set_whose_turn();
-  const auto [result, move] = b.BruteForce3(1e18, 1);
-  EXPECT_EQ(result, Board::BruteForceResult::kLose);
-  EXPECT_EQ(move, 2);
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, move] = Board::BruteForce4(p, 1e18);
+  EXPECT_EQ(DebugImage(result), "Lose");
+  EXPECT_EQ(MaskImage(move), "Row 1 Col 2");
 }
 
 struct CacheData {
@@ -825,7 +886,7 @@ std::vector<CacheData> cache_data = {
     {3323231, 2323232, 44345}, {3323232, 2323231, 44341}};
 
 TEST(Cache, Basic) {
-  Cache cache(2, 20);
+  Cache<std::size_t> cache(2, 20);
 
   for (std::size_t i = 0; i < cache_data.size(); ++i) {
     {
@@ -847,7 +908,7 @@ TEST(Cache, Basic) {
 }
 
 TEST(Cache, BasicLru) {
-  Cache cache(11, 20);
+  Cache<std::size_t> cache(11, 20);
   std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
   for (std::uint64_t k = 0; k < 10; ++k) {
     cache.Insert(k, 100, k + 1000);
@@ -889,7 +950,7 @@ TEST(Cache, BasicLru) {
 }
 
 TEST(Cache, Dropoff) {
-  Cache cache(11, 9);
+  Cache<std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 10; ++k) {
     cache.Insert(k, 100, k + 1000);
   }
@@ -904,7 +965,7 @@ TEST(Cache, Dropoff) {
 }
 
 TEST(Cache, ShuffleAndDrop) {
-  Cache cache(11, 9);
+  Cache<std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 9; ++k) {
     cache.Insert(k, 100, k + 1000);
   }
@@ -939,24 +1000,24 @@ TEST(Cache, ShuffleAndDrop) {
 }
 
 TEST(Cache, TableSizes) {
-  Cache a(1, 10);
+  Cache<std::size_t> a(1, 10);
   EXPECT_EQ(a.hash_shift(), 64);
 
-  Cache b(2, 10);
+  Cache<std::size_t> b(2, 10);
   EXPECT_EQ(b.hash_shift(), 63);
 
-  Cache c(3, 10);
+  Cache<std::size_t> c(3, 10);
   EXPECT_EQ(c.hash_shift(), 62);
 
-  Cache d(4, 10);
+  Cache<std::size_t> d(4, 10);
   EXPECT_EQ(d.hash_shift(), 62);
 
-  Cache e(5, 10);
+  Cache<std::size_t> e(5, 10);
   EXPECT_EQ(e.hash_shift(), 61);
 
-  Cache f(64, 10);
+  Cache<std::size_t> f(64, 10);
   EXPECT_EQ(f.hash_shift(), 58);
 
-  Cache g(65, 10);
+  Cache<std::size_t> g(65, 10);
   EXPECT_EQ(g.hash_shift(), 57);
 }

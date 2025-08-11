@@ -1,7 +1,5 @@
 #include "board.h"
 
-#include <intrin.h>
-
 #include <bit>
 #include <cassert>
 #include <cstddef>
@@ -14,6 +12,8 @@
 #include <streambuf>
 #include <utility>
 #include <vector>
+
+#include "cache.h"
 
 class nullbuf : public std::streambuf {
  protected:
@@ -28,8 +28,33 @@ class nullstream : public std::ostream {
   nullbuf nbuf;
 };
 
+const char *const Board::outcome_image[4] = {"contested", "red wins",
+                                             "yellow wins", "draw"};
+const char *const Board::three_kind_image[4] = {"none", "win", "block", "lose"};
+
 // Returns a mask with a single bit set.
-inline std::uint64_t OneMask(std::size_t index) { return UINT64_C(1) << index; }
+inline Board::BoardMask OneMask(std::size_t index) {
+  return UINT64_C(1) << index;
+}
+
+std::string MaskImage(Board::BoardMask mask) {
+  const int n = std::popcount(mask);
+  if (n != 1) {
+    return std::format("{} bits set", n);
+  }
+  const int offset = std::countr_zero(mask);
+  return std::format("Row {} Col {}", offset / Board::kNumCols,
+                     offset % Board::kNumCols);
+}
+
+std::size_t MaskColumn(Board::BoardMask mask) {
+  const int n = std::popcount(mask);
+  if (n != 1) {
+    throw std::runtime_error("Not a single move");
+  }
+  const int offset = std::countr_zero(mask);
+  return offset % Board::kNumCols;
+}
 
 // Converts back and forth between an index (range [0:42)) and
 // a (row, col) pair.
@@ -41,7 +66,7 @@ inline std::size_t Index(std::size_t row, std::size_t col) {
 
 // Converts back and forth between an index (range [0:42)) and
 // a (row, col) pair.
-inline std::uint64_t Index(const Board::Coord &c) {
+inline std::size_t Index(const Board::Coord &c) {
   return c.first * Board::kNumCols + c.second;
 }
 
@@ -62,7 +87,7 @@ Board::PartialWins Board::ComputePartialWins() {
   // For every 1 bit in all_winning_masks[i], append an i into the vector
   // corresponding to the position of that bit.
   for (std::size_t i = 0; i < all_winning_masks.size(); ++i) {
-    const std::uint64_t mask = all_winning_masks[i];
+    const BoardMask mask = all_winning_masks[i];
     for (std::size_t j = 0; j < result.size(); ++j) {
       if ((mask >> j) & 1) {
         result[j].push_back(i);
@@ -76,7 +101,7 @@ const Board::PartialWins all_partial_wins = Board::ComputePartialWins();
 
 void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   const std::size_t position = Index(row, col);
-  const std::uint64_t mask = OneMask(position);
+  const BoardMask mask = OneMask(position);
 #if 0
   const std::vector<std::size_t> &needs_adjust = all_partial_wins[position];
 
@@ -117,7 +142,7 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   }
 #endif
 
-  std::uint64_t unmask = ~mask;
+  BoardMask unmask = ~mask;
   switch (value) {
     case 0:
       red_set_ &= unmask;
@@ -145,7 +170,7 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
 void Board::CheckPartialWins() {
 #if 0
   for (std::size_t i = 0; i < kNumFours; ++i) {
-    const std::uint64_t mask = all_winning_masks[i];
+    const BoardMask mask = all_winning_masks[i];
     const int red_count = std::popcount(mask & red_set_);
     const int yellow_count = std::popcount(mask & yellow_set_);
     if (partial_wins_[i].red_count != red_count ||
@@ -160,15 +185,18 @@ void Board::CheckPartialWins() {
 }
 
 unsigned int Board::get_value(std::size_t row, std::size_t col) const {
-  const std::uint64_t mask = OneMask(Index(row, col));
+  const BoardMask mask = OneMask(Index(row, col));
   return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
 }
 
-std::size_t Board::LegalMoves(std::size_t (&moves)[kNumCols]) const {
-  const std::uint64_t all_bits = red_set_ | yellow_set_;
-  static constexpr std::size_t offset = (kNumRows - 1) * (kNumCols);
+// Returns the number of legal moves, and writes them into moves.
+// More efficient than returning a vector, and it matters.
+std::size_t Board::LegalMoves(std::size_t (&moves)[Board::kNumCols]) {
+  const Board::BoardMask all_bits = red_set_ | yellow_set_;
+  static constexpr std::size_t offset =
+      (Board::kNumRows - 1) * (Board::kNumCols);
   std::size_t count = 0;
-  for (std::size_t col = 0; col < kNumCols; ++col) {
+  for (std::size_t col = 0; col < Board::kNumCols; ++col) {
     if ((all_bits & OneMask(offset + col)) == 0) {
       moves[count++] = col;
     }
@@ -196,6 +224,40 @@ std::size_t Board::drop(std::size_t column) {
     }
   }
   throw std::runtime_error("Column is full");
+}
+
+// Given a board position, decide whose turn it is.
+// Returns 1 for red and 2 for yellow.
+unsigned int GetWhoseTurn(const Board::Position &p) {
+  if ((p.red_set & p.yellow_set) != 0) {
+    throw std::runtime_error("red/yellow overlap");
+  }
+  const int red_count = std::popcount(p.red_set);
+  const int yellow_count = std::popcount(p.yellow_set);
+  if (red_count == yellow_count) {
+    return 1;  // red
+  }
+  if (red_count == yellow_count + 1) {
+    return 2;  // yellow
+  }
+  throw std::runtime_error("red/yellow unbalanced");
+}
+
+// Given a board position, decide whose turn it is.
+// Returns 1 for red and 2 for yellow.
+unsigned int Board::Position::WhoseTurn() const {
+  if ((red_set & yellow_set) != 0) {
+    throw std::runtime_error("red/yellow overlap");
+  }
+  const int red_count = std::popcount(red_set);
+  const int yellow_count = std::popcount(yellow_set);
+  if (red_count == yellow_count) {
+    return 1;  // red
+  }
+  if (red_count == yellow_count + 1) {
+    return 2;  // yellow
+  }
+  throw std::runtime_error("red/yellow unbalanced");
 }
 
 void Board::set_whose_turn() {
@@ -231,21 +293,21 @@ void Board::clear() {
 #endif
 }
 
-std::uint64_t Board::CreateColumnMask() {
-  std::uint64_t result = 0;
+// Compute a mask with a 1 set in every row of the lefmost column.
+Board::BoardMask Board::CreateColumnMask() {
+  BoardMask result = 0;
   for (std::size_t index = 0; index < kBoardSize; index += kNumCols) {
     result |= OneMask(index);
   }
   return result;
 }
 
-const std::uint64_t column_mask = Board::CreateColumnMask();
+const Board::BoardMask column_mask = Board::CreateColumnMask();
 
 void Board::push(std::size_t column) {
-  unsigned long bit_pos;
-  const auto success = _BitScanForward64(
-      &bit_pos, ~(red_set_ | yellow_set_) & (column_mask << column));
-  if (success == 0) {
+  const int bit_pos =
+      std::countr_zero(~(red_set_ | yellow_set_) & (column_mask << column));
+  if (bit_pos > 63) {
     throw std::runtime_error("Column is full");
   }
   if (stack_size_ >= kBoardSize) {
@@ -253,15 +315,32 @@ void Board::push(std::size_t column) {
   }
   new_stack_[stack_size_].red_set = red_set_;
   new_stack_[stack_size_].yellow_set = yellow_set_;
+  new_stack_[stack_size_].column = column;
   ++stack_size_;
 
-  const std::uint64_t mask = OneMask(bit_pos);
+  const BoardMask mask = OneMask(bit_pos);
   if (whose_turn_ == 1) {
     red_set_ |= mask;
   } else {
     yellow_set_ |= mask;
   }
   whose_turn_ = 3 - whose_turn_;
+}
+
+// Returns the number of legal moves, and writes them into moves.
+// More efficient than returning a vector, and it matters.
+// The moves are are represented by bit masks.
+std::size_t LegalMovesM(Board::BoardMask red_set, Board::BoardMask yellow_set,
+                        Board::BoardMask (&moves)[Board::kNumCols]) {
+  const Board::BoardMask candidates = ~(red_set | yellow_set);
+  std::size_t count = 0;
+  for (std::size_t col = 0; col < Board::kNumCols; ++col) {
+    const int bit_pos = std::countr_zero(candidates & (column_mask << col));
+    if (bit_pos < 64) {
+      moves[count++] = OneMask(bit_pos);
+    }
+  }
+  return count;
 }
 
 void Board::pop() {
@@ -308,7 +387,7 @@ Board::MaskArray Board::winning_masks() {
   Board::MaskArray result;
   std::size_t i = 0;
   combos([&i, &result](Coord a, Coord b, Coord c, Coord d) {
-    std::uint64_t mask = 0;
+    BoardMask mask = 0;
     mask |= OneMask(Index(a));
     mask |= OneMask(Index(b));
     mask |= OneMask(Index(c));
@@ -323,7 +402,7 @@ Board::MaskArray Board::winning_masks() {
 
 Board::Outcome Board::IsGameOver() const {
   Outcome result = Outcome::kDraw;
-  for (std::uint64_t mask : all_winning_masks) {
+  for (BoardMask mask : all_winning_masks) {
     if ((red_set_ & mask) == mask) {
       result = Outcome::kRedWins;
       break;
@@ -340,32 +419,65 @@ Board::Outcome Board::IsGameOver() const {
   return result;
 }
 
+Board::Outcome Board::Position::IsGameOver() const {
+  Board::Outcome result = Board::Outcome::kDraw;
+  for (Board::BoardMask mask : all_winning_masks) {
+    if ((red_set & mask) == mask) {
+      result = Outcome::kRedWins;
+      break;
+    }
+    if ((yellow_set & mask) == mask) {
+      result = Outcome::kYellowWins;
+      break;
+    }
+    if ((red_set & mask) == 0 || (yellow_set & mask) == 0) {
+      result = Outcome::kContested;
+    }
+  }
+
+  return result;
+}
+
 // For debugging
-std::string DumpMask(std::uint64_t mask) {
+std::string DumpMask(Board::BoardMask mask) {
   std::ostringstream stream;
   for (std::size_t r = 0; r < Board::kNumRows; ++r) {
     const size_t row = Board::kNumRows - 1 - r;
     for (std::size_t col = 0; col < Board::kNumCols; ++col) {
       const std::size_t index = row * Board::kNumCols + col;
       const bool value = mask & OneMask(index);
-      stream << (value ? '*' : '.');
+      stream << (value ? '%' : '.');
     }
     stream << '\n';
   }
   return stream.str();
 }
 
-std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
-    std::uint8_t me) const {
-  std::uint64_t my_bits, his_bits;
+// Finds all occurences of three of four bits in board.
+// Add the mask for the missing fourth bit into the result.
+Board::BoardMask FindTriples(const Board::BoardMask &board) {
+  Board::BoardMask result = 0;
+  for (const Board::BoardMask mask : all_winning_masks) {
+    const Board::BoardMask four_bits = mask & board;
+    if (std::popcount(four_bits) == 3) {
+      // Find the hole in the three bits.
+      result |= OneMask(std::countr_zero(four_bits ^ mask));
+    }
+  }
+  return result;
+}
+
+std::pair<Board::BoardMask, Board::ThreeKind> Board::ThreeInARow2(
+    Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me) {
+  Board::BoardMask my_bits, his_bits;
   switch (me) {
     case 1:
-      my_bits = red_set_;
-      his_bits = yellow_set_;
+      my_bits = red_set;
+      his_bits = yellow_set;
       break;
     case 2:
-      my_bits = yellow_set_;
-      his_bits = red_set_;
+      my_bits = yellow_set;
+      his_bits = red_set;
       break;
     default:
       throw std::runtime_error(std::format("Bad value {}", me));
@@ -373,53 +485,43 @@ std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
 
   unsigned int other_count = 0;  // The number of supported three-in-a-kinds
                                  // my opponent has.
-  unsigned long other_index;     // The index of the last one seen.
 
-  // A single bitmap indicating whether either color is present.
-  const std::uint64_t either_bits = red_set_ | yellow_set_;
+  // A single bitmap indicating where the empty spaces on the board are.
+  const Board::BoardMask empty_squares = ~(red_set | yellow_set);
 
-  for (std::uint64_t mask : all_winning_masks) {
-    // Check if I have a supported three-in-a-row
-    const std::uint64_t my_three = mask & my_bits;
-    if (__popcnt64(my_three) == 3) {
-      // Find which of the four bits is turned off.
-      unsigned long bit_pos;
-      _BitScanForward64(&bit_pos, my_three ^ mask);
+  // Find all the places where a piece can be legally played.
+  Board::BoardMask legal_moves = 0;
 
-      // Check that the zero bit really is zero.
-      if ((OneMask(bit_pos) & his_bits) == 0) {
-        // Check if the zero bit is supported.
-        if (bit_pos < kNumCols || (OneMask(bit_pos - kNumCols) & either_bits)) {
-          // Return the column of the winning move.
-          return std::make_pair(bit_pos % kNumCols, ThreeKind::kWin);
-        }
-      }
-    }
-    // Check if he has a supported three-in-a-row
-    const std::uint64_t his_three = mask & his_bits;
-    if (__popcnt64(his_three) == 3) {
-      // Find which of the four bits is turned off.
-      unsigned long bit_pos;
-      _BitScanForward64(&bit_pos, his_three ^ mask);
-      // Check that the zero bit really is zero.
-      if ((OneMask(bit_pos) & my_bits) == 0) {
-        // Check if the zero bit is supported.
-        if (bit_pos < kNumCols || (OneMask(bit_pos - kNumCols) & either_bits)) {
-          other_index = bit_pos;
-          ++other_count;
-        }
-      }
+  for (std::size_t col = 0; col < Board::kNumCols; ++col) {
+    const int bit_pos = std::countr_zero(empty_squares & (column_mask << col));
+    if (bit_pos < 64) {
+      legal_moves |= OneMask(bit_pos);
     }
   }
 
-  switch (other_count) {
-    case 0:
-      return std::make_pair(0, ThreeKind::kNone);
-    case 1:
-      return std::make_pair(other_index % kNumCols, ThreeKind::kBlock);
-    default:
-      return std::make_pair(other_index % kNumCols, ThreeKind::kLose);
+  // See if I can win.
+  if (const int bit_pos = std::countr_zero(FindTriples(my_bits) & legal_moves);
+      bit_pos < 64) {
+    return std::make_pair(OneMask(bit_pos), Board::ThreeKind::kWin);
   }
+
+  const Board::BoardMask blocks = FindTriples(his_bits) & legal_moves;
+  if (blocks == 0) {
+    return std::make_pair(0, Board::ThreeKind::kNone);
+  }
+  return std::make_pair(OneMask(std::countr_zero(blocks)),
+                        std::popcount(blocks) == 1 ? Board::ThreeKind::kBlock
+                                                   : Board::ThreeKind::kLose);
+}
+
+std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
+    std::uint8_t me) const {
+  const auto [mask, result] = ThreeInARow2(red_set_, yellow_set_, me);
+  if (result == Board::ThreeKind::kNone) {
+    return std::make_pair(0, result);
+  }
+  const int bit_pos = std::countr_zero(mask);
+  return std::make_pair(bit_pos % Board::kNumCols, result);
 }
 
 int Board::heuristic() const {
@@ -544,7 +646,7 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
   }
 }
 
-Board::BruteForceResult Board::Reverse(BruteForceResult outcome) const {
+Board::BruteForceResult Board::Reverse(BruteForceResult outcome) {
   switch (outcome) {
     case BruteForceResult::kWin:
       return BruteForceResult::kLose;
@@ -573,16 +675,16 @@ const char *DebugImage(Board::ThreeKind c) {
   }
 }
 
-const char *DebugImage(Board::BruteForceResult c) {
+std::string DebugImage(Board::BruteForceResult c) {
   switch (c) {
     case Board::BruteForceResult::kWin:
       return "Win";
     case Board::BruteForceResult::kDraw:
-      return "Block";
+      return "Draw";
     case Board::BruteForceResult::kLose:
       return "Lose";
     default:
-      return "bad";
+      return "Unknown Value";
   }
 }
 
@@ -641,10 +743,6 @@ std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
   if (num_moves == 0) {
     return std::make_pair(BruteForceResult::kDraw, std::vector<std::size_t>());
   }
-  if (budget < 1.0) {
-    throw std::runtime_error(
-        std::format("Ran out of budget with {} pieces placed", HowFull()));
-  }
   budget = (budget - 1) / num_moves;
   BruteForceResult best = BruteForceResult::kWin;
   std::vector<size_t> best_path;
@@ -665,142 +763,6 @@ std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
     std::cout << "Evaluated " << counter << " boards\n";
   }
   return std::make_pair(Reverse(best), best_path);
-}
-
-std::pair<Board::BruteForceResult, std::size_t> Board::BruteForce3(
-    double budget_input, std::uint8_t me_input) {
-  struct StackFrame {
-    StackFrame(double budget, std::uint8_t me) : budget(budget), me(me) {}
-
-    // Input parameters
-    double budget;
-    std::uint8_t me;
-
-    bool looping;
-
-    // Only used when looping is true
-    std::size_t moves[kNumCols];
-    std::size_t num_moves;
-    std::size_t current_move;
-
-    BruteForceResult best;
-    std::size_t best_move;
-  };
-
-  std::vector<StackFrame> restack;  // The recursion stack.
-
-  // Global to all levels of recursion.
-  std::size_t board_counter = 0;
-
-  // Input parameters to recursive call.
-  // These get saved the beginning of a call and
-  // restored after a return.
-  double budget_parm = budget_input;
-  std::uint8_t me_parm = me_input;
-
-  // Return parameters from recursive call.
-  // Must be set before going to do_return.
-  BruteForceResult return_outcome;
-  std::size_t return_move;
-
-do_call:
-  // Recursive call.
-  // Set up new stack frame.
-  ++board_counter;
-#if 0
-  std::cout << "Call " << board_counter << " budget " << budget_parm;
-  for (const auto &frame : restack) {
-    if (frame.looping) {
-      std::cout << " " << *frame.current_move;
-    } else {
-      std::cout << " " << frame.best_move;
-    }
-  }
-  std::cout << "\n";
-#endif
-
-  restack.emplace_back(budget_parm, me_parm);
-  const auto [move, outcome] = ThreeInARow(me_parm);
-
-  switch (outcome) {
-    case ThreeKind::kNone: {
-      StackFrame &top = restack.back();
-      top.looping = true;
-      top.num_moves = LegalMoves(top.moves);
-      if (top.num_moves == 0) {
-        return_outcome = BruteForceResult::kDraw;
-        return_move = move;  // ?
-        goto do_return;
-      }
-      if (budget_parm < 1.0) {
-        throw std::runtime_error(
-            std::format("Ran out of budget with {} pieces placed", HowFull()));
-      }
-      budget_parm = (budget_parm - 1) / top.num_moves;
-      top.budget = budget_parm;
-
-      // Initialize the loop.
-      top.best = BruteForceResult::kWin;
-      top.best_move = 9999;
-      top.current_move = 0;
-      push(top.moves[0]);
-      me_parm = 3 - me_parm;
-      goto do_call;
-    }
-    case ThreeKind::kWin: {
-      return_outcome = BruteForceResult::kWin;
-      return_move = move;
-      goto do_return;
-    }
-    case ThreeKind::kLose: {
-      return_outcome = BruteForceResult::kLose;
-      return_move = move;
-      goto do_return;
-    }
-    case ThreeKind::kBlock: {
-      push(move);
-      restack.back().looping = false;
-      restack.back().best_move = move;
-      me_parm = 3 - me_parm;
-      goto do_call;
-    }
-    default:
-      throw std::runtime_error("Bad outcome value");
-  }
-
-do_return:
-  // Recursive return.
-  restack.pop_back();
-
-  if (restack.empty()) {
-    std::cout << "Evaluated " << board_counter << " boards\n";
-    return std::make_pair(return_outcome, return_move);
-  }
-  budget_parm = restack.back().budget;
-  me_parm = restack.back().me;
-
-  pop();
-
-  if (restack.back().looping) {
-    StackFrame &top = restack.back();
-    if (return_outcome >= top.best) {
-      top.best = return_outcome;
-      top.best_move = top.moves[top.current_move];
-    }
-    if (++top.current_move == top.num_moves) {
-      return_outcome = Reverse(top.best);
-      return_move = top.best_move;
-      goto do_return;
-    }
-    push(top.moves[top.current_move]);
-    me_parm = 3 - me_parm;
-    goto do_call;
-  }
-
-  // Return from forced move.
-  return_move = restack.back().best_move;
-  return_outcome = Reverse(return_outcome);
-  goto do_return;
 }
 
 std::pair<int, std::vector<std::size_t>> Board::alpha_beta_trace(
@@ -885,4 +847,286 @@ std::string Board::image() const {
     stream << '\n';
   }
   return stream.str();
+}
+
+std::string Board::Position::image() const {
+  std::ostringstream stream;
+  for (std::size_t r = 0; r < kNumRows; ++r) {
+    const size_t row = kNumRows - 1 - r;
+    for (std::size_t col = 0; col < kNumCols; ++col) {
+      const BoardMask mask = OneMask(Index(row, col));
+      switch (2 * ((mask & red_set) != 0) + ((mask & yellow_set) != 0)) {
+        case 0:
+          stream << '.';
+          break;
+        case 1:
+          stream << '2';
+          break;
+        case 2:
+          stream << '1';
+          break;
+        case 3:
+          stream << '3';
+          break;
+      }
+    }
+    stream << '\n';
+  }
+  return stream.str();
+}
+
+void Board::Position::set_value(std::size_t row, std::size_t col,
+                                unsigned int value) {
+  const BoardMask mask = OneMask(Index(row, col));
+  BoardMask unmask = ~mask;
+  switch (value) {
+    case 0:
+      red_set &= unmask;
+      yellow_set &= unmask;
+      break;
+    case 1:
+      red_set |= mask;
+      yellow_set &= unmask;
+      break;
+    case 2:
+      red_set &= unmask;
+      yellow_set |= mask;
+      break;
+    case 3:
+      red_set |= mask;
+      yellow_set |= mask;
+      break;
+    default:
+      throw std::runtime_error(std::format("Bad value {}", value));
+  }
+}
+Board::Position Board::ParsePosition(const std::string image) {
+  Board::Position b;
+  if (image.size() != 42 + 6 + 1) {
+    throw std::runtime_error("string size");
+  }
+  std::size_t i = 0;
+  const auto getc = [image, &i]() { return image[i++]; };
+  if (getc() != '\n') {
+    throw std::runtime_error("initial newline");
+  }
+  for (std::size_t row = 5;; --row) {
+    for (std::size_t col = 0; col < 7; ++col) {
+      const Board::BoardMask mask = OneMask(Index(row, col));
+      switch (getc()) {
+        case '.':
+          break;
+        case '1':
+          b.red_set |= mask;
+          break;
+        case '2':
+          b.yellow_set |= mask;
+          break;
+        default:
+          throw std::runtime_error("bad value");
+      }
+    }
+    if (getc() != '\n') {
+      throw std::runtime_error("line length");
+    }
+    if (row == 0) {
+      break;
+    }
+  }
+  return b;
+}
+
+Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
+                                            double budget) {
+  std::size_t report_count = 0;
+  struct StackFrame {
+    // Input parameters
+    double budget;
+    Position position;
+
+    // Redundant with position.
+    unsigned int whose_turn;  // 1 or 2
+
+    BoardMask moves[kNumCols];
+    std::size_t num_moves;
+    std::size_t current_move = 0;
+
+    BruteForceResult best;
+    std::size_t best_move;
+  };
+  std::vector<StackFrame> restack;  // The recursion stack.
+                                    //
+  const auto stack_trace = [&restack]() {
+    std::cout << "**** Stack Trace ****\n";
+    for (std::size_t i = 0; i < restack.size(); ++i) {
+      const StackFrame &top = restack[i];
+      std::cout << std::format("Level {} Player {}\n{}-------------\n", i,
+                               top.whose_turn, top.position.image());
+    }
+  };
+
+  try {
+    // This variable is read at report_result.
+    Board::BruteForceResult result;
+
+    // These variables are read at the beginning of the loop.
+    // They should not be referenced elsewhere.
+    Board::Position new_pos = position;
+    unsigned int new_whose_turn = GetWhoseTurn(new_pos);
+    double new_budget = budget;
+
+    for (;;) {
+      {
+#if 0
+        std::cout << "Player " << new_pos.WhoseTurn() << " " << "Budget "
+                  << new_budget << "\n";
+#endif
+        // Evaluate new_pos, new_whose_turn, new_budget
+        // If new_pos is warranted, a new stack frame is created,
+        // and the input values are used to create it.
+        const auto [move, outcome] =
+            ThreeInARow2(new_pos.red_set, new_pos.yellow_set, new_whose_turn);
+#if 0
+        std::cout << "Outcome: "
+                  << Board::three_kind_image[static_cast<int>(outcome)] << "\n"
+                  << new_pos.image() << "==============================\n";
+#endif
+        switch (outcome) {
+          case Board::ThreeKind::kNone:
+          case Board::ThreeKind::kBlock: {
+            if (new_budget < 1.0) {
+              throw std::runtime_error(std::format("Ran out of budget"));
+            }
+            restack.emplace_back();
+#if 0
+            std::cout << std::format("Level {} created\n", restack.size());
+#endif
+            StackFrame &top = restack.back();
+
+            // Initialize top.num_moves and top.moves.
+            switch (outcome) {
+              case Board::ThreeKind::kNone:
+                top.num_moves =
+                    LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
+                if (top.num_moves == 0) {
+#if 0
+                  std::cout << "No legal moves\n";
+#endif
+                  restack.pop_back();
+                  result = Board::BruteForceResult::kDraw;
+                  ++report_count;
+#if 0
+                  std::cout << report_count << ": Report draw\n";
+#endif
+                  if (restack.empty()) {
+                    return Board::BruteForceReturn4(
+                        Board::BruteForceResult::kDraw, 0);
+                  }
+                  goto report_result;
+                }
+                break;
+              case Board::ThreeKind::kBlock: {
+                top.num_moves = 1;
+                top.moves[0] = move;
+                break;
+              }
+            }
+
+            // Initialize the rest of the stack frame.
+            top.position = new_pos;
+            top.budget = (new_budget - 1) / top.num_moves;
+            top.whose_turn = new_whose_turn;
+            top.best = BruteForceResult::kLose;
+            goto advance_top;
+          }
+          case Board::ThreeKind::kWin:
+          case Board::ThreeKind::kLose: {
+            // Reverse the result.
+            result = outcome == Board::ThreeKind::kWin
+                         ? Board::BruteForceResult::kLose
+                         : Board::BruteForceResult::kWin;
+#if 0
+            std::cout << report_count << ": Report " << DebugImage(result)
+                      << "\n";
+#endif
+            if (restack.empty()) {
+              return Board::BruteForceReturn4(Reverse(result), move);
+            }
+            goto report_result;
+          }
+        }
+      }
+
+    report_result: {
+      StackFrame &top = restack.back();
+      if (result <= top.best) {
+        top.best = result;
+        if (top.current_move == 0) {
+          throw std::runtime_error(std::format("current move equals zero"));
+        }
+        top.best_move = top.moves[top.current_move - 1];
+      }
+      // Fall into advance_top.
+    }
+
+    advance_top: {
+      if (restack.empty()) {
+        throw std::runtime_error("Stack empty");
+      }
+      StackFrame &top = restack.back();
+      if (top.current_move >= top.num_moves) {
+        if (restack.size() == 1) {
+          return Board::BruteForceReturn4(top.best, top.best_move);
+        }
+        result = Reverse(top.best);
+        restack.pop_back();
+        ++report_count;
+#if 0
+        std::cout << report_count << ": Report end of iter\n";
+#endif
+        goto report_result;
+      }
+
+      // Get the next move.
+      const BoardMask move = top.moves[top.current_move++];
+
+      // Apply the next move to to top.position to create a new board
+      // position. Initialize new_pos, new_whose_turn, and new_budget,
+      // so that we can loop back to evaluate this new position.
+      new_pos = top.position;
+      if (top.whose_turn != new_pos.WhoseTurn()) {
+        throw std::runtime_error("turn out of whack\n");
+      }
+#if 0
+      std::cout << "Player " << top.whose_turn << " plays at "
+                << MaskImage(move) << "\nBoard:\n"
+                << new_pos.image();
+#endif
+
+      if (top.whose_turn == 1) {
+        new_pos.red_set |= move;
+      } else {
+        new_pos.yellow_set |= move;
+      }
+
+      new_whose_turn = 3 - top.whose_turn;
+      if (new_whose_turn != new_pos.WhoseTurn()) {
+        std::runtime_error("whose turn?");
+      }
+      new_budget = top.budget;
+#if 0
+      std::cout << "At level " << restack.size() << " current_move bumped to "
+                << top.current_move << "\n";
+#endif
+    }
+    }
+  } catch (const std::exception &e) {
+    std::cout << "Exception " << e.what() << "\n";
+    stack_trace();
+    throw;
+  } catch (...) {
+    std::cout << "Unknown exception\n";
+    stack_trace();
+    throw;
+  }
 }

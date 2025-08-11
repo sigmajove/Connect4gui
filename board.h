@@ -1,12 +1,12 @@
 #pragma once
 
-#include <intrin.h>
-
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <string>
 #include <utility>
@@ -25,8 +25,32 @@ class Board {
   static constexpr std::size_t kNumCols = 7;
   static constexpr std::size_t kBoardSize = kNumRows * kNumCols;
 
+  // A 42-bit value representing a board postion.
+  // The first 7 bits are the bottom row, lo to hi for left to right.
+  // the next 7 bits are the second from the bottom row, etc.
+  using BoardMask = std::uint64_t;
+
   // A (row, col) pair.
   using Coord = std::pair<std::size_t, std::size_t>;
+
+  enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
+  static const char* const outcome_image[4];
+
+  struct Position {
+    Position& operator=(const Position&) = default;
+
+    void set_value(std::size_t row, std::size_t col, unsigned int value);
+    Board::Outcome IsGameOver() const;
+    unsigned int WhoseTurn() const;
+    std::string image() const;
+
+    // Each of these is 48 bits, numbered rowwise.
+    // "red" is player 1 and "yellow" is player 2.
+    BoardMask red_set = 0;
+    BoardMask yellow_set = 0;
+  };
+
+  static Position ParsePosition(const std::string image);
 
   Board() { clear(); }
 
@@ -40,7 +64,7 @@ class Board {
   }
 
   // Returns the number of pieces on the board.
-  std::size_t HowFull() const { return __popcnt64(red_set_ | yellow_set_); }
+  int HowFull() const { return std::popcount(red_set_ | yellow_set_); }
 
   uint8_t favorite() const { return favorite_; }
   unsigned int whose_turn() const { return whose_turn_; }
@@ -53,10 +77,6 @@ class Board {
   // Set and Get functions.
   void set_value(std::size_t row, std::size_t col, unsigned int value);
   unsigned int get_value(std::size_t row, std::size_t col) const;
-
-  // Returns the number of legal moves, and writes them into moves.
-  // More efficient than returning a vector, and it matters.
-  std::size_t LegalMoves(std::size_t (&moves)[kNumCols]) const;
 
   // Returns the columns where drop and push are valid.
   std::vector<std::size_t> legal_moves() const;
@@ -74,7 +94,6 @@ class Board {
   // Figure out whose turn it is based on those numbers.
   void set_whose_turn();
 
-  enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
   Outcome IsGameOver() const;
 
   // Estimate the desirability of the board from the point of view
@@ -94,11 +113,7 @@ class Board {
     kLose,   // Opponent has two supported three-in-a-rows. I will lose,
              // because I can only block one.
   };
-
-  // Searches for supported three-in-a-rows. "Supported" means the fourth
-  // square is empty, and the square below it is occupied or nonexistent.
-  // If found, returns the column needed to make or block four-in-a-row.
-  std::pair<std::size_t, ThreeKind> ThreeInARow(std::uint8_t me) const;
+  static const char* const three_kind_image[4];
 
   // Calls visit with each of the four-in-a-row coordinate possibilities.
   static void combos(
@@ -115,12 +130,12 @@ class Board {
 
   // The number of possible 4-in-a-row positions on the board.
   static constexpr std::size_t kNumFours = 69;
-  using MaskArray = std::array<std::uint64_t, kNumFours>;
+  using MaskArray = std::array<BoardMask, kNumFours>;
 
   // Computes the winning masks at program startup.
   static MaskArray winning_masks();
 
-  static std::uint64_t CreateColumnMask();
+  static BoardMask CreateColumnMask();
 
   // A map from the board position to the winning_masks that include that
   // position.
@@ -135,12 +150,37 @@ class Board {
   // Returns a string representation of the board.
   std::string image() const;
 
+  std::string HexImage() const {
+    return std::format("{:011x}-{:011x}", red_set_, yellow_set_);
+  }
+
+  std::size_t LegalMoves(std::size_t (&moves)[Board::kNumCols]);
+  std::pair<std::size_t, Board::ThreeKind> ThreeInARow(std::uint8_t me) const;
+
+  // Searches for supported three-in-a-rows. "Supported" means the fourth
+  // square is empty, and the square below it is occupied or nonexistent.
+  // If found, returns the mask needed to make or block four-in-a-row.
+  // Returns zero for the move if no supported three-in-a-rows are found.
+  static std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow2(
+      Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me);
+
   enum class BruteForceResult { kWin, kDraw, kLose };
   std::pair<BruteForceResult, std::vector<std::size_t>> BruteForce(
       double budget, std::uint8_t me);
 
-  std::pair<BruteForceResult, std::size_t> BruteForce3(
-      double budget, std::uint8_t me);
+  struct BruteForceReturn4 {
+    BruteForceReturn4(BruteForceResult result, BoardMask move)
+        : result(result), move(move) {}
+
+    // Need this to allocate one, I guess.
+    // The values are bogus.
+    BruteForceReturn4() : result(BruteForceResult::kDraw), move(0) {}
+
+    BruteForceResult result;
+    BoardMask move;
+  };
+
+  static BruteForceReturn4 BruteForce4(Board::Position position, double budget);
 
  private:
   // The recursive function that performs alpha-beta minimax restricted
@@ -148,7 +188,7 @@ class Board {
   int alpha_beta_helper(std::size_t depth, int alpha, int beta,
                         bool maximizing);
 
-  BruteForceResult Reverse(BruteForceResult outcome) const;
+  static BruteForceResult Reverse(BruteForceResult outcome);
 
   static constexpr std::size_t kNumValues = kNumRows * kNumCols;
   static constexpr std::size_t kBitsPerValue = 2;
@@ -158,8 +198,8 @@ class Board {
 
   // Each of these is 48 bits, numbered rowwise.
   // "red" is player 1 and "yellow" is player 2.
-  std::uint64_t red_set_ = 0;
-  std::uint64_t yellow_set_ = 0;
+  BoardMask red_set_ = 0;
+  BoardMask yellow_set_ = 0;
 
   // The number of pieces in each color in a partial win.
   struct PieceCounts {
@@ -172,8 +212,9 @@ class Board {
 #endif
 
   struct Data {
-    std::uint64_t red_set;
-    std::uint64_t yellow_set;
+    BoardMask red_set;
+    BoardMask yellow_set;
+    std::size_t column;  // For debugging
   };
   Data new_stack_[kBoardSize];
   std::size_t stack_size_ = 0;
@@ -183,3 +224,7 @@ class Board {
   // The payer we want to win.
   unsigned int favorite_ = 1;
 };
+
+std::string MaskImage(Board::BoardMask mask);
+std::size_t MaskColumn(Board::BoardMask mask);
+std::string DebugImage(Board::BruteForceResult c);

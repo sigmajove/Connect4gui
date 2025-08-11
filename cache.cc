@@ -1,3 +1,4 @@
+#if 0
 #include "cache.h"
 
 #include <format>
@@ -152,3 +153,4 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> Cache::LruOrder() {
   }
   return result;
 };
+#endif
