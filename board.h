@@ -12,7 +12,9 @@
 #include <utility>
 #include <vector>
 
-enum class BruteForceResult { kWin, kDraw, kLose };
+// The type returned by BruteForce.
+// kNil is never returned, but is used internally.
+enum class BruteForceResult { kWin, kDraw, kLose, kNil };
 
 class Board {
  public:

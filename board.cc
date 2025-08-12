@@ -951,7 +951,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     std::size_t num_moves;
     std::size_t current_move = 0;
 
-    BruteForceResult best;
+    BruteForceResult best = BruteForceResult::kNil;
     std::size_t best_move;
   };
   std::vector<StackFrame> restack;  // The recursion stack.
@@ -1004,38 +1004,18 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             StackFrame &top = restack.back();
 
             // Initialize top.num_moves and top.moves.
-            switch (outcome) {
-              case Board::ThreeKind::kNone:
-                top.num_moves =
-                    LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
-                if (top.num_moves == 0) {
-#if 0
-                  std::cout << "No legal moves\n";
-#endif
-                  restack.pop_back();
-                  result = BruteForceResult::kDraw;
-                  ++report_count;
-#if 0
-                  std::cout << report_count << ": Report draw\n";
-#endif
-                  if (restack.empty()) {
-                    return Board::BruteForceReturn4(BruteForceResult::kDraw, 0);
-                  }
-                  goto report_result;
-                }
-                break;
-              case Board::ThreeKind::kBlock: {
-                top.num_moves = 1;
-                top.moves[0] = move;
-                break;
-              }
+            if (outcome == Board::ThreeKind::kNone) {
+              top.num_moves =
+                  LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
+            } else {
+              top.num_moves = 1;
+              top.moves[0] = move;
             }
 
             // Initialize the rest of the stack frame.
             top.position = new_pos;
             top.budget = (new_budget - 1) / top.num_moves;
             top.whose_turn = new_whose_turn;
-            top.best = BruteForceResult::kLose;
             goto advance_top;
           }
           case Board::ThreeKind::kWin:
@@ -1043,10 +1023,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             // Reverse the result.
             result = outcome == Board::ThreeKind::kWin ? BruteForceResult::kLose
                                                        : BruteForceResult::kWin;
-#if 0
-            std::cout << report_count << ": Report " << DebugImage(result)
-                      << "\n";
-#endif
             if (restack.empty()) {
               return Board::BruteForceReturn4(Reverse(result), move);
             }
@@ -1073,6 +1049,10 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       }
       StackFrame &top = restack.back();
       if (top.current_move >= top.num_moves) {
+        if (top.best == BruteForceResult::kNil) {
+          // There were no legal moves.
+          top.best = BruteForceResult::kDraw;
+        }
         if (restack.size() == 1) {
           return Board::BruteForceReturn4(top.best, top.best_move);
         }
