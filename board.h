@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+enum class BruteForceResult { kWin, kDraw, kLose };
+
 class Board {
  public:
   // A Board is a 6x7 matrix of values.
@@ -164,7 +166,6 @@ class Board {
   static std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow2(
       Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me);
 
-  enum class BruteForceResult { kWin, kDraw, kLose };
   std::pair<BruteForceResult, std::vector<std::size_t>> BruteForce(
       double budget, std::uint8_t me);
 
@@ -227,4 +228,4 @@ class Board {
 
 std::string MaskImage(Board::BoardMask mask);
 std::size_t MaskColumn(Board::BoardMask mask);
-std::string DebugImage(Board::BruteForceResult c);
+std::string DebugImage(BruteForceResult c);

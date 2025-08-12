@@ -646,7 +646,7 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
   }
 }
 
-Board::BruteForceResult Board::Reverse(BruteForceResult outcome) {
+BruteForceResult Board::Reverse(BruteForceResult outcome) {
   switch (outcome) {
     case BruteForceResult::kWin:
       return BruteForceResult::kLose;
@@ -675,13 +675,13 @@ const char *DebugImage(Board::ThreeKind c) {
   }
 }
 
-std::string DebugImage(Board::BruteForceResult c) {
+std::string DebugImage(BruteForceResult c) {
   switch (c) {
-    case Board::BruteForceResult::kWin:
+    case BruteForceResult::kWin:
       return "Win";
-    case Board::BruteForceResult::kDraw:
+    case BruteForceResult::kDraw:
       return "Draw";
-    case Board::BruteForceResult::kLose:
+    case BruteForceResult::kLose:
       return "Lose";
     default:
       return "Unknown Value";
@@ -706,7 +706,7 @@ std::string DebugImage(std::vector<std::size_t> v) {
 }
 
 static int counter = 0;
-std::pair<Board::BruteForceResult, std::vector<size_t>> Board::BruteForce(
+std::pair<BruteForceResult, std::vector<size_t>> Board::BruteForce(
     double budget, std::uint8_t me) {
   if (stack_size_ == 0) {
     counter = 0;
@@ -967,7 +967,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
   try {
     // This variable is read at report_result.
-    Board::BruteForceResult result;
+    BruteForceResult result;
 
     // These variables are read at the beginning of the loop.
     // They should not be referenced elsewhere.
@@ -1013,14 +1013,13 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                   std::cout << "No legal moves\n";
 #endif
                   restack.pop_back();
-                  result = Board::BruteForceResult::kDraw;
+                  result = BruteForceResult::kDraw;
                   ++report_count;
 #if 0
                   std::cout << report_count << ": Report draw\n";
 #endif
                   if (restack.empty()) {
-                    return Board::BruteForceReturn4(
-                        Board::BruteForceResult::kDraw, 0);
+                    return Board::BruteForceReturn4(BruteForceResult::kDraw, 0);
                   }
                   goto report_result;
                 }
@@ -1042,9 +1041,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           case Board::ThreeKind::kWin:
           case Board::ThreeKind::kLose: {
             // Reverse the result.
-            result = outcome == Board::ThreeKind::kWin
-                         ? Board::BruteForceResult::kLose
-                         : Board::BruteForceResult::kWin;
+            result = outcome == Board::ThreeKind::kWin ? BruteForceResult::kLose
+                                                       : BruteForceResult::kWin;
 #if 0
             std::cout << report_count << ": Report " << DebugImage(result)
                       << "\n";

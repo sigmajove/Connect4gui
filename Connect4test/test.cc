@@ -808,7 +808,7 @@ TEST(BruteForce, RedLoses) {
 )");
   b.set_whose_turn();
   const auto [result, path] = b.BruteForce(1e7, 1);
-  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  EXPECT_EQ(result, BruteForceResult::kLose);
   const std::vector<std::size_t> expected = {3, 3};
   EXPECT_EQ(path, expected);
 }
@@ -824,7 +824,7 @@ TEST(BruteForce, Simple) {
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
   const auto [result, move] = Board::BruteForce4(p, 1e12);
-  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  EXPECT_EQ(result, BruteForceResult::kLose);
   EXPECT_EQ(move, BuildMask(3, 3));
 }
 
@@ -854,7 +854,7 @@ TEST(BruteForce, OneMore) {
 )");
   b.set_whose_turn();
   const auto [result, path] = b.BruteForce(1e18, 1);
-  EXPECT_EQ(result, Board::BruteForceResult::kLose);
+  EXPECT_EQ(result, BruteForceResult::kLose);
   const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
   EXPECT_EQ(path, expected);
 }
