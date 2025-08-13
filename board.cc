@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cassert>
+#include <compare>
 #include <cstddef>
 #include <format>
 #include <iostream>
@@ -28,32 +29,43 @@ class nullstream : public std::ostream {
   nullbuf nbuf;
 };
 
-const char *const Board::outcome_image[4] = {"contested", "red wins",
-                                             "yellow wins", "draw"};
 const char *const Board::three_kind_image[4] = {"none", "win", "block", "lose"};
 
-// Returns a mask with a single bit set.
-inline Board::BoardMask OneMask(std::size_t index) {
-  return UINT64_C(1) << index;
-}
-
 std::string MaskImage(Board::BoardMask mask) {
-  const int n = std::popcount(mask);
-  if (n != 1) {
-    return std::format("{} bits set", n);
+  std::ostringstream stream;
+  bool needs_comma = false;
+  for (;;) {
+    if (std::popcount(mask) == 0) {
+      return stream.str();
+    }
+    const int offset = std::countr_zero(mask);
+    if (needs_comma) {
+      stream << ", ";
+    } else {
+      needs_comma = true;
+    }
+
+    stream << std::format("Row {} Col {}", offset / Board::kNumCols,
+                          offset % Board::kNumCols);
+    mask &= ~OneMask(offset);
   }
-  const int offset = std::countr_zero(mask);
-  return std::format("Row {} Col {}", offset / Board::kNumCols,
-                     offset % Board::kNumCols);
 }
 
+// Returns the leftmost column in the mask, 999 if the mask is empty.
 std::size_t MaskColumn(Board::BoardMask mask) {
-  const int n = std::popcount(mask);
-  if (n != 1) {
-    throw std::runtime_error("Not a single move");
+  std::size_t result = 999;
+  for (;;) {
+    if (std::popcount(mask) == 0) {
+      return result;
+    }
+    const int offset = std::countr_zero(mask);
+    const std::size_t column = offset % Board::kNumCols;
+    if (column < result) {
+      result = column;
+    }
+
+    mask &= ~OneMask(offset);
   }
-  const int offset = std::countr_zero(mask);
-  return offset % Board::kNumCols;
 }
 
 // Converts back and forth between an index (range [0:42)) and
@@ -514,16 +526,6 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::ThreeInARow2(
                                                    : Board::ThreeKind::kLose);
 }
 
-std::pair<std::size_t, Board::ThreeKind> Board::ThreeInARow(
-    std::uint8_t me) const {
-  const auto [mask, result] = ThreeInARow2(red_set_, yellow_set_, me);
-  if (result == Board::ThreeKind::kNone) {
-    return std::make_pair(0, result);
-  }
-  const int bit_pos = std::countr_zero(mask);
-  return std::make_pair(bit_pos % Board::kNumCols, result);
-}
-
 int Board::heuristic() const {
   const unsigned int other = 3 - favorite_;
   bool four_for_me = false;
@@ -671,7 +673,22 @@ const char *DebugImage(Board::ThreeKind c) {
     case Board::ThreeKind::kLose:
       return "Lose";
     default:
-      return "bad";
+      return "Unknown Value";
+  }
+}
+
+std::string DebugImage(Board::Outcome outcome) {
+  switch (outcome) {
+    case Board::Outcome::kContested:
+      return "Contested";
+    case Board::Outcome::kRedWins:
+      return "Red Wins";
+    case Board::Outcome::kYellowWins:
+      return "Yellow Wins";
+    case Board::Outcome::kDraw:
+      return "Draw";
+    default:
+      return "Unknown Value";
   }
 }
 
@@ -703,137 +720,6 @@ std::string DebugImage(std::vector<std::size_t> v) {
     oss << item;
   }
   return oss.str();
-}
-
-static int counter = 0;
-std::pair<BruteForceResult, std::vector<size_t>> Board::BruteForce(
-    double budget, std::uint8_t me) {
-  if (stack_size_ == 0) {
-    counter = 0;
-  }
-  const int id = ++counter;
-  const auto [move, outcome] = ThreeInARow(me);
-  switch (outcome) {
-    case ThreeKind::kNone:
-      break;
-    case ThreeKind::kWin: {
-      return std::make_pair(BruteForceResult::kWin,
-                            std::vector<std::size_t>(1, move));
-    }
-    case ThreeKind::kLose: {
-      return std::make_pair(BruteForceResult::kLose,
-                            std::vector<std::size_t>(1, move));
-    }
-    case ThreeKind::kBlock: {
-      push(move);
-      auto [forced, path] = BruteForce(budget, 3 - me);
-      pop();
-      path.insert(path.begin(), move);
-      if (stack_size_ == 0) {
-        std::cout << "Evaluated " << counter << " boards\n";
-      }
-      return std::make_pair(Reverse(forced), path);
-    }
-    default:
-      throw std::runtime_error("Bad outcome value");
-  }
-
-  std::size_t moves[kNumCols];
-  const std::size_t num_moves = LegalMoves(moves);
-  if (num_moves == 0) {
-    return std::make_pair(BruteForceResult::kDraw, std::vector<std::size_t>());
-  }
-  budget = (budget - 1) / num_moves;
-  BruteForceResult best = BruteForceResult::kWin;
-  std::vector<size_t> best_path;
-  std::size_t best_move = 9999;
-  for (std::size_t i = 0; i < num_moves; ++i) {
-    const std::size_t m = moves[i];
-    push(m);
-    const auto [eval, path] = BruteForce(budget, 3 - me);
-    pop();
-    if (eval >= best) {
-      best = eval;
-      best_path = path;
-      best_move = m;
-    }
-  }
-  best_path.insert(best_path.begin(), best_move);
-  if (stack_size_ == 0) {
-    std::cout << "Evaluated " << counter << " boards\n";
-  }
-  return std::make_pair(Reverse(best), best_path);
-}
-
-std::pair<int, std::vector<std::size_t>> Board::alpha_beta_trace(
-    std::size_t depth, int alpha, int beta, bool maximizing) {
-  nullstream discard;
-  std::ostream *const trace = &discard;
-
-  const std::size_t xxxx = 10 - depth;
-  assert(xxxx >= 0);
-  const std::string indent(4 * xxxx, ' ');
-
-  *trace << indent << "Start " << (maximizing ? "Max " : "Min") << "\n";
-  const std::vector<std::size_t> moves(legal_moves());
-  if (depth == 0 || moves.empty()) {
-    const int v = heuristic();
-    *trace << std::format("{}return Leaf value {}\n", indent, v);
-    return std::make_pair(v, std::vector<std::size_t>());
-  }
-  if (maximizing) {
-    std::vector<std::size_t> best_path;
-    int value = std::numeric_limits<int>::min();
-    for (const std::size_t col : moves) {
-      push(col);
-      *trace << std::format("{}Push {}\n", indent, col);
-      auto [child, path] = alpha_beta_trace(depth - 1, alpha, beta, false);
-      pop();
-      *trace << indent << "pop eval " << child << "\n";
-
-      if (child > value) {
-        value = child;
-        path.insert(path.begin(), col);
-        best_path = std::move(path);
-      }
-      if (value >= beta) {
-        *trace << indent << "Prune beta " << beta << "\n";
-        break;
-      }
-      if (value > alpha) {
-        alpha = value;
-      }
-    }
-    *trace << std::format("{}return max value {} col {}\n", indent, value,
-                          best_path[0]);
-    return std::make_pair(value, std::move(best_path));
-  } else {
-    int value = std::numeric_limits<int>::max();
-    std::vector<std::size_t> best_path;
-    for (const std::size_t col : moves) {
-      push(col);
-      *trace << std::format("{}Push {}\n", indent, col);
-      auto [child, path] = alpha_beta_trace(depth - 1, alpha, beta, true);
-      pop();
-      *trace << indent << "pop eval " << child << "\n";
-
-      if (child < value) {
-        value = child;
-        path.insert(path.begin(), col);
-        best_path = std::move(path);
-      }
-      if (value <= alpha) {
-        *trace << indent << "Prune alpha " << alpha << "\n";
-        break;
-      }
-      if (value < beta) {
-        beta = value;
-      }
-    }
-    *trace << std::format("{}return min value {} col {}\n", indent, value,
-                          best_path[0]);
-    return std::make_pair(value, std::move(best_path));
-  }
 }
 
 std::string Board::image() const {
@@ -952,6 +838,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     std::size_t current_move = 0;
 
     BruteForceResult best = BruteForceResult::kNil;
+    std::size_t best_depth = 0;
     std::size_t best_move;
   };
   std::vector<StackFrame> restack;  // The recursion stack.
@@ -966,8 +853,9 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
   };
 
   try {
-    // This variable is read at report_result.
+    // These variables are read at report_result.
     BruteForceResult result;
+    std::size_t result_depth;
 
     // These variables are read at the beginning of the loop.
     // They should not be referenced elsewhere.
@@ -1023,6 +911,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             // Reverse the result.
             result = outcome == Board::ThreeKind::kWin ? BruteForceResult::kLose
                                                        : BruteForceResult::kWin;
+            result_depth = restack.size();
             if (restack.empty()) {
               return Board::BruteForceReturn4(Reverse(result), move);
             }
@@ -1033,12 +922,33 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
     report_result: {
       StackFrame &top = restack.back();
-      if (result <= top.best) {
+      if (top.current_move == 0) {
+        throw std::runtime_error(std::format("current move equals zero"));
+      }
+      const BoardMask move = top.moves[top.current_move - 1];
+      if (result < top.best) {
         top.best = result;
-        if (top.current_move == 0) {
-          throw std::runtime_error(std::format("current move equals zero"));
+        top.best_depth = result_depth;
+        top.best_move = move;
+      } else if (result == top.best) {
+        switch (result) {
+          case BruteForceResult::kWin:
+            if (result_depth < top.best_depth) {
+              top.best_depth = result_depth;
+              top.best_move = move;
+            } else if (result_depth == top.best_depth) {
+              top.best_move |= move;
+            }
+            break;
+          case BruteForceResult::kLose:
+            if (result_depth > top.best_depth) {
+              top.best_depth = result_depth;
+              top.best_move = move;
+            } else if (result_depth == top.best_depth) {
+              top.best_move |= move;
+            }
+            break;
         }
-        top.best_move = top.moves[top.current_move - 1];
       }
       // Fall into advance_top.
     }
@@ -1052,11 +962,13 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         if (top.best == BruteForceResult::kNil) {
           // There were no legal moves.
           top.best = BruteForceResult::kDraw;
+          top.best_depth = restack.size();
         }
         if (restack.size() == 1) {
           return Board::BruteForceReturn4(top.best, top.best_move);
         }
         result = Reverse(top.best);
+        result_depth = top.best_depth;
         restack.pop_back();
         ++report_count;
 #if 0

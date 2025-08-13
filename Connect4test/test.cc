@@ -725,29 +725,39 @@ TEST(ThreeInRow, HorizonalThree) {
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
 }
 
+TEST(MaskImageTest, Simple) {
+  EXPECT_EQ(MaskImage(0), "");
+  EXPECT_EQ(MaskImage(BuildMask(3, 2)), "Row 3 Col 2");
+  EXPECT_EQ(MaskImage(BuildMask(3, 2) | BuildMask(5, 1)),
+            "Row 3 Col 2, Row 5 Col 1");
+}
+
 std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(
     Board::Position &p) {
   std::vector<std::size_t> result;
   for (;;) {
-    std::cout << "====\n" << p.image() << "====\n\n";
+    std::cout << "====\n" << p.image() << "====\n";
     const Board::Outcome outcome = p.IsGameOver();
     if (outcome != Board::Outcome::kContested) {
-      std::cout << "Outcome "
-                << Board::outcome_image[static_cast<std::size_t>(outcome)]
-                << "\n";
+      std::cout << "Outcome: " << DebugImage(outcome) << "\n";
       return std::make_pair(outcome, result);
     }
     auto [_, move] = Board::BruteForce4(p, 1e18);
-    switch (p.WhoseTurn()) {
+
+    // Chose one of the moves returned (the one with the smallest row).
+    const int offset = std::countr_zero(move);
+    const Board::BoardMask mask = OneMask(offset);
+    const std::size_t me = p.WhoseTurn();
+    switch (me) {
       case 1:
-        p.red_set |= move;
+        p.red_set |= mask;
         break;
       case 2:
-        p.yellow_set |= move;
+        p.yellow_set |= mask;
         break;
     }
-    std::cout << "Move " << MaskImage(move) << "\n";
-    result.push_back(MaskColumn(move));
+    std::cout << me << " moves in " << MaskImage(mask) << "\n";
+    result.push_back(offset % Board::kNumCols);
   }
 }
 
@@ -762,7 +772,25 @@ TEST(PlayTest, YellowIn2) {
 )");
   auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
-  const std::vector<std::size_t> expected = {3, 3};
+  const std::vector<std::size_t> expected = {1, 3, 3, 0, 1, 1,
+                                             1, 0, 1, 3, 2, 2};
+  EXPECT_EQ(path, expected);
+}
+
+TEST(PlayTest, OneMore) {
+  Board::Position p = Board::ParsePosition(R"(
+...1...
+...21..
+.2.22.1
+.1.12.2
+22.2111
+1112122
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, path] = PlaySelfTest(p);
+  EXPECT_EQ(result, Board::Outcome::kYellowWins);
+  const std::vector<std::size_t> expected = {2, 1, 0, 2, 2, 6, 1, 4,
+                                             6, 0, 0, 0, 2, 5, 5, 2};
   EXPECT_EQ(path, expected);
 }
 
@@ -777,8 +805,7 @@ TEST(PlayTest, YellowIn6) {
 )");
   auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
-  const std::vector<std::size_t> expected = {4, 6, 5, 5, 5, 4, 3, 3, 3, 4,
-                                             3, 2, 2, 1, 1, 1, 1, 2, 2};
+  const std::vector<std::size_t> expected = {2, 2, 3, 1, 1};
   EXPECT_EQ(path, expected);
 }
 
@@ -793,12 +820,13 @@ TEST(PlayTest, YellowIn10) {
 )");
   auto [outcome, path] = PlaySelfTest(p);
   EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
-  const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
+  const std::vector<std::size_t> expected = {2, 1, 0, 2, 2, 6, 1, 4,
+                                             6, 0, 0, 0, 2, 5, 5, 2};
   EXPECT_EQ(path, expected);
 }
 
 TEST(BruteForce, RedLoses) {
-  Board b = parse(R"(
+  Board::Position p = Board::ParsePosition(R"(
 ....211
 ....122
 2...211
@@ -806,10 +834,11 @@ TEST(BruteForce, RedLoses) {
 2.11212
 1121122
 )");
-  b.set_whose_turn();
-  const auto [result, path] = b.BruteForce(1e7, 1);
-  EXPECT_EQ(result, BruteForceResult::kLose);
-  const std::vector<std::size_t> expected = {3, 3};
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  auto [outcome, path] = PlaySelfTest(p);
+  EXPECT_EQ(outcome, Board::Outcome::kYellowWins);
+  const std::vector<std::size_t> expected = {1, 3, 3, 0, 1, 1,
+                                             1, 0, 1, 3, 2, 2};
   EXPECT_EQ(path, expected);
 }
 
@@ -825,7 +854,7 @@ TEST(BruteForce, Simple) {
   EXPECT_EQ(p.WhoseTurn(), 1);
   const auto [result, move] = Board::BruteForce4(p, 1e12);
   EXPECT_EQ(result, BruteForceResult::kLose);
-  EXPECT_EQ(move, BuildMask(3, 3));
+  EXPECT_EQ(MaskImage(move), "Row 1 Col 1, Row 4 Col 0");
 }
 
 TEST(BruteForce, YellowWins) {
@@ -840,23 +869,7 @@ TEST(BruteForce, YellowWins) {
   EXPECT_EQ(p.WhoseTurn(), 2);
   const auto [result, move] = Board::BruteForce4(p, 1e13);
   EXPECT_EQ(DebugImage(result), "Win");
-  EXPECT_EQ(MaskImage(move), "Row 3 Col 4");
-}
-
-TEST(BruteForce, OneMore) {
-  Board b = parse(R"(
-...1...
-...21..
-.2.22.1
-.1.12.2
-22.2111
-1112122
-)");
-  b.set_whose_turn();
-  const auto [result, path] = b.BruteForce(1e18, 1);
-  EXPECT_EQ(result, BruteForceResult::kLose);
-  const std::vector<std::size_t> expected = {2, 6, 6, 5, 5, 5, 5, 4, 2, 2};
-  EXPECT_EQ(path, expected);
+  EXPECT_EQ(MaskImage(move), "Row 2 Col 2");
 }
 
 TEST(BruteForce, OneMore4) {

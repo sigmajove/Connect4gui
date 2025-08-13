@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -38,7 +40,6 @@ class Board {
   using Coord = std::pair<std::size_t, std::size_t>;
 
   enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
-  static const char* const outcome_image[4];
 
   struct Position {
     Position& operator=(const Position&) = default;
@@ -127,11 +128,6 @@ class Board {
   // search depth.
   std::size_t find_move(std::size_t depth);
 
-  // For debugging.
-  std::pair<int, std::vector<std::size_t>> alpha_beta_trace(std::size_t depth,
-                                                            int alpha, int beta,
-                                                            bool maximizing);
-
   // The number of possible 4-in-a-row positions on the board.
   static constexpr std::size_t kNumFours = 69;
   using MaskArray = std::array<BoardMask, kNumFours>;
@@ -159,7 +155,6 @@ class Board {
   }
 
   std::size_t LegalMoves(std::size_t (&moves)[Board::kNumCols]);
-  std::pair<std::size_t, Board::ThreeKind> ThreeInARow(std::uint8_t me) const;
 
   // Searches for supported three-in-a-rows. "Supported" means the fourth
   // square is empty, and the square below it is occupied or nonexistent.
@@ -167,9 +162,6 @@ class Board {
   // Returns zero for the move if no supported three-in-a-rows are found.
   static std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow2(
       Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me);
-
-  std::pair<BruteForceResult, std::vector<std::size_t>> BruteForce(
-      double budget, std::uint8_t me);
 
   struct BruteForceReturn4 {
     BruteForceReturn4(BruteForceResult result, BoardMask move)
@@ -228,6 +220,15 @@ class Board {
   unsigned int favorite_ = 1;
 };
 
+// Returns a mask with a single bit set.
+inline Board::BoardMask OneMask(std::size_t index) {
+  return UINT64_C(1) << index;
+}
+
 std::string MaskImage(Board::BoardMask mask);
+
+// Returns the leftmost column in the mask, 999 if the mask is empty.
 std::size_t MaskColumn(Board::BoardMask mask);
+
+std::string DebugImage(Board::Outcome outcome);
 std::string DebugImage(BruteForceResult c);
