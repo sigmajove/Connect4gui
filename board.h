@@ -6,6 +6,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -17,6 +18,45 @@
 // The type returned by BruteForce.
 // kNil is never returned, but is used internally.
 enum class BruteForceResult { kWin, kDraw, kLose, kNil };
+
+struct Metric {
+  // Determines which Metric is better.
+  // Like a spaceship operator, but the result can be used in a switch
+  // statement.
+  //
+  // +1: lhs is better
+  //  0: both are the same
+  // -1: rhs is better
+  friend int compare(const Metric& lhs, const Metric& rhs) {
+    const std::strong_ordering compare_result = lhs.result <=> rhs.result;
+    if (compare_result == std::strong_ordering::less) {
+      return 1;  // lhs is better
+    }
+    if (compare_result == std::strong_ordering::equal) {
+      // Break ties with stack depth.
+      // Note: winners want to win as soon as possible,
+      // but losers want to delay the loss as much as possible.
+      const std::strong_ordering compare_depth = lhs.depth <=> rhs.depth;
+      switch (lhs.result) {
+        case BruteForceResult::kWin:
+          return compare_depth == std::strong_ordering::less    ? 1
+                 : compare_depth == std::strong_ordering::equal ? 0
+                                                                : -1;
+        case BruteForceResult::kLose:
+          return compare_depth == std::strong_ordering::less    ? -1
+                 : compare_depth == std::strong_ordering::equal ? 0
+                                                                : 1;
+        default:
+          return 0;  // Stack depth is ignored for ties (and kNil?).
+                     // The depth of ties should all be the same, anyway,
+      }
+    }
+    return -1;  // rhs is better
+  }
+
+  BruteForceResult result = BruteForceResult::kNil;
+  std::size_t depth = 0;
+};
 
 class Board {
  public:

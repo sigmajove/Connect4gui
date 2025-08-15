@@ -825,6 +825,7 @@ Board::Position Board::ParsePosition(const std::string image) {
 Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                                             double budget) {
   std::size_t report_count = 0;
+
   struct StackFrame {
     // Input parameters
     double budget;
@@ -837,9 +838,11 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     std::size_t num_moves;
     std::size_t current_move = 0;
 
-    BruteForceResult best = BruteForceResult::kNil;
-    std::size_t best_depth = 0;
     std::size_t best_move;
+
+    Metric best;
+    Metric alpha;
+    Metric beta;
   };
   std::vector<StackFrame> restack;  // The recursion stack.
                                     //
@@ -853,15 +856,16 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
   };
 
   try {
-    // These variables are read at report_result.
-    BruteForceResult result;
-    std::size_t result_depth;
+    // This variable is read at report_result.
+    Metric result;
 
     // These variables are read at the beginning of the loop.
     // They should not be referenced elsewhere.
     Board::Position new_pos = position;
     unsigned int new_whose_turn = GetWhoseTurn(new_pos);
     double new_budget = budget;
+    Metric new_alpha;
+    Metric new_beta;
 
     for (;;) {
       {
@@ -904,16 +908,19 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             top.position = new_pos;
             top.budget = (new_budget - 1) / top.num_moves;
             top.whose_turn = new_whose_turn;
+            top.alpha = new_alpha;
+            top.beta = new_beta;
             goto advance_top;
           }
           case Board::ThreeKind::kWin:
           case Board::ThreeKind::kLose: {
             // Reverse the result.
-            result = outcome == Board::ThreeKind::kWin ? BruteForceResult::kLose
-                                                       : BruteForceResult::kWin;
-            result_depth = restack.size();
+            result.result = outcome == Board::ThreeKind::kWin
+                                ? BruteForceResult::kLose
+                                : BruteForceResult::kWin;
+            result.depth = restack.size();
             if (restack.empty()) {
-              return Board::BruteForceReturn4(Reverse(result), move);
+              return Board::BruteForceReturn4(Reverse(result.result), move);
             }
             goto report_result;
           }
@@ -926,6 +933,19 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         throw std::runtime_error(std::format("current move equals zero"));
       }
       const BoardMask move = top.moves[top.current_move - 1];
+      switch (compare(result, top.best)) {
+        case 1:  // result is beter
+          top.best = result;
+          top.best_move = move;
+          break;
+        case 0:  // Both are the same
+          top.best_move |= move;
+        case -1:  // top.best is better
+          break;
+        default:
+          throw std::runtime_error("Bad compare");
+      }
+#if 0
       if (result < top.best) {
         top.best = result;
         top.best_depth = result_depth;
@@ -950,6 +970,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             break;
         }
       }
+#endif
       // Fall into advance_top.
     }
 
@@ -959,16 +980,16 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       }
       StackFrame &top = restack.back();
       if (top.current_move >= top.num_moves) {
-        if (top.best == BruteForceResult::kNil) {
+        if (top.best.result == BruteForceResult::kNil) {
           // There were no legal moves.
-          top.best = BruteForceResult::kDraw;
-          top.best_depth = restack.size();
+          top.best.result = BruteForceResult::kDraw;
+          top.best.depth = restack.size();
         }
         if (restack.size() == 1) {
-          return Board::BruteForceReturn4(top.best, top.best_move);
+          return Board::BruteForceReturn4(top.best.result, top.best_move);
         }
-        result = Reverse(top.best);
-        result_depth = top.best_depth;
+        result.result = Reverse(top.best.result);
+        result.depth = top.best.depth;
         restack.pop_back();
         ++report_count;
 #if 0
