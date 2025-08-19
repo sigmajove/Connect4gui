@@ -413,15 +413,8 @@ Board::BoardMask FindTriples(const Board::BoardMask &board) {
 // Add the mask for the missing fourth bit into the result.
 Board::BoardMask FindNewTriples(const Board::BoardMask &board,
                                 Board::BoardMask move) {
-  if (std::popcount(move) != 1) {
-    throw std::runtime_error("Bad move in FindNewTriples");
-  }
-  const std::size_t offset = std::countr_zero(move);
-  if (offset >= Board::kNumRows * Board::kNumCols) {
-    throw std::runtime_error("Too big move in FindNewTriples");
-  }
   Board::BoardMask result = 0;
-  for (const Board::BoardMask mask : all_partial_wins[offset]) {
+  for (const Board::BoardMask mask : all_partial_wins[std::countr_zero(move)]) {
     const Board::BoardMask four_bits = mask & board;
     if (std::popcount(four_bits) == 3) {
       // Find the hole in the three bits.
@@ -598,27 +591,6 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
       }
     }
     return value;
-  }
-}
-
-// To use the same code to evaluate either player, we need to reverse
-// results as we pass them between levels. One player's good news is
-// the other player's bad news.
-BruteForceResult Board::Reverse(BruteForceResult result) {
-  switch (result) {
-    case BruteForceResult::kInf:
-      return BruteForceResult::kNil;
-    case BruteForceResult::kWin:
-      return BruteForceResult::kLose;
-    case BruteForceResult::kDraw:
-      return BruteForceResult::kDraw;
-    case BruteForceResult::kLose:
-      return BruteForceResult::kWin;
-    case BruteForceResult::kNil:
-      return BruteForceResult::kInf;
-    default:
-      throw std::runtime_error(
-          std::format("Bad result {}", static_cast<int>(result)));
   }
 }
 

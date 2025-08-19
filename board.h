@@ -18,6 +18,7 @@
 
 // The type returned by BruteForce.
 // kInf and kNil are never returned, but are used internally.
+// Warning: if you change this declaration, also change Board::Reverse.
 enum class BruteForceResult { kInf, kWin, kDraw, kLose, kNil };
 
 struct Metric {
@@ -233,7 +234,14 @@ class Board {
   int alpha_beta_helper(std::size_t depth, int alpha, int beta,
                         bool maximizing);
 
-  static BruteForceResult Reverse(BruteForceResult result);
+  // To use the same code to evaluate either player, we need to reverse
+  // results as we pass them between levels. One player's good news is
+  // the other player's bad news.
+  static BruteForceResult Reverse(BruteForceResult result) {
+    // Apology: this is brittle code, but it is a performance hot spot.
+    return static_cast<BruteForceResult>(4 - static_cast<std::size_t>(result));
+  }
+
   static Metric Reverse(Metric metric);
 
   static constexpr std::size_t kNumValues = kNumRows * kNumCols;
