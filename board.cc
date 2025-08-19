@@ -792,25 +792,15 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
   struct StackFrame {
     StackFrame(Position position, unsigned int whose_turn,
-               BoardMask red_triples, BoardMask yellow_triples
-#define ALPHA_BETA 1
-#if ALPHA_BETA
-               ,
-               Metric cutoff, Metric accum
-#endif
-               )
+               BoardMask red_triples, BoardMask yellow_triples, Metric cutoff,
+               Metric accum)
         : position(position),
           whose_turn(whose_turn),
           best(BruteForceResult::kNil, 0),  // Negative infinity.
           red_triples(red_triples),
-          yellow_triples(yellow_triples)
-#if ALPHA_BETA
-          ,
+          yellow_triples(yellow_triples),
           cutoff(cutoff),
-          accum(accum)
-#endif
-    {
-    }
+          accum(accum) {}
 
     // Input parameters
     double budget;
@@ -827,7 +817,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
     BoardMask red_triples, yellow_triples;
 
-#if ALPHA_BETA
     // Otherwise known as the alpha and beta in Alpha-beta pruning.
     // Alpha-beta pruning significantly speeds up the search algorithm.
     // We use a variation on the classic algorithm found at
@@ -835,7 +824,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     // so that we can use the same code to evaluate the position of
     // either player.
     Metric cutoff, accum;
-#endif
   };
   std::vector<StackFrame> restack;  // The recursion stack.
 
@@ -860,10 +848,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     BoardMask new_red_triples = FindTriples(position.red_set);
     BoardMask new_yellow_triples = FindTriples(position.yellow_set);
 
-#if ALPHA_BETA
     Metric new_cutoff(BruteForceResult::kInf, 0);  // Negative infinity
     Metric new_accum(BruteForceResult::kNil, 0);   // Positive infinity.
-#endif
 
     for (;;) {
       {
@@ -879,12 +865,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
               throw std::runtime_error(std::format("Ran out of budget"));
             }
             restack.emplace_back(new_pos, new_whose_turn, new_red_triples,
-                                 new_yellow_triples
-#if ALPHA_BETA
-                                 ,
-                                 new_cutoff, new_accum
-#endif
-            );
+                                 new_yellow_triples, new_cutoff, new_accum);
             StackFrame &top = restack.back();
 
             // Initialize top.num_moves and top.moves.
@@ -932,7 +913,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
           // Don't bother updating top.cutoff and top.accum if
           // we are about the pop the stack.
-#if ALPHA_BETA
+
           // We cannot apply the Alpha/Beta optimization at Level 2.
           // If we did, we would correctly determine who wins, but
           // at Level 1 we could produce wrong winning moves.
@@ -941,11 +922,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
               if (restack.size() == 1) {
                 throw std::runtime_error("Cutoff at level one");
               }
-#if 0
-              std::cout << "Alpha/Beta cutoff level " << restack.size()
-                        << " result " << result << " >= cutoff " << top.cutoff
-                        << "\n";
-#endif
+
               result.result = Reverse(result.result);
               restack.pop_back();
               ++report_count;
@@ -955,7 +932,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
               top.accum = result;
             }
           }
-#endif
           break;
         case 0:  // Both are the same
           if (restack.size() == 1) {
@@ -1024,11 +1000,9 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       }
       new_budget = top.budget;
 
-#if ALPHA_BETA
       // Swap cutoff and accum
       new_cutoff = Reverse(top.accum);
       new_accum = Reverse(top.cutoff);
-#endif
     }
     }
   } catch (const std::exception &e) {
