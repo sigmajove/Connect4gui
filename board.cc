@@ -29,8 +29,6 @@ class nullstream : public std::ostream {
   nullbuf nbuf;
 };
 
-const char *const Board::three_kind_image[4] = {"none", "win", "block", "lose"};
-
 std::string MaskImage(Board::BoardMask mask) {
   std::ostringstream stream;
   bool needs_comma = false;
@@ -479,9 +477,9 @@ Board::BoardMask FindTriples(const Board::BoardMask &board) {
   return result;
 }
 
-std::pair<Board::BoardMask, Board::ThreeKind> Board::ThreeInARow2(
-    Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me) {
-  Board::BoardMask my_bits, his_bits;
+std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
+    unsigned int me) const {
+  BoardMask my_bits, his_bits;
   switch (me) {
     case 1:
       my_bits = red_set;
@@ -499,10 +497,10 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::ThreeInARow2(
                                  // my opponent has.
 
   // A single bitmap indicating where the empty spaces on the board are.
-  const Board::BoardMask empty_squares = ~(red_set | yellow_set);
+  const BoardMask empty_squares = ~(red_set | yellow_set);
 
   // Find all the places where a piece can be legally played.
-  Board::BoardMask legal_moves = 0;
+  BoardMask legal_moves = 0;
 
   for (std::size_t col = 0; col < Board::kNumCols; ++col) {
     const int bit_pos = std::countr_zero(empty_squares & (column_mask << col));
@@ -512,18 +510,18 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::ThreeInARow2(
   }
 
   // See if I can win.
-  if (const int bit_pos = std::countr_zero(FindTriples(my_bits) & legal_moves);
-      bit_pos < 64) {
-    return std::make_pair(OneMask(bit_pos), Board::ThreeKind::kWin);
+  if (const BoardMask winners = FindTriples(my_bits) & legal_moves;
+      winners != 0) {
+    return std::make_pair(winners, Board::ThreeKind::kWin);
   }
 
-  const Board::BoardMask blocks = FindTriples(his_bits) & legal_moves;
+  const BoardMask blocks = FindTriples(his_bits) & legal_moves;
   if (blocks == 0) {
     return std::make_pair(0, Board::ThreeKind::kNone);
   }
-  return std::make_pair(OneMask(std::countr_zero(blocks)),
-                        std::popcount(blocks) == 1 ? Board::ThreeKind::kBlock
-                                                   : Board::ThreeKind::kLose);
+  return std::make_pair(blocks, std::popcount(blocks) == 1
+                                    ? Board::ThreeKind::kBlock
+                                    : Board::ThreeKind::kLose);
 }
 
 int Board::heuristic() const {
@@ -648,18 +646,29 @@ int Board::alpha_beta_helper(std::size_t depth, int alpha, int beta,
   }
 }
 
-BruteForceResult Board::Reverse(BruteForceResult outcome) {
-  switch (outcome) {
+// To use the same code to evaluate either player, we need to reverse
+// results as we pass them between levels. One player's good news is
+// the other player's bad news.
+BruteForceResult Board::Reverse(BruteForceResult result) {
+  switch (result) {
+    case BruteForceResult::kInf:
+      return BruteForceResult::kNil;
     case BruteForceResult::kWin:
       return BruteForceResult::kLose;
-    case BruteForceResult::kLose:
-      return BruteForceResult::kWin;
     case BruteForceResult::kDraw:
       return BruteForceResult::kDraw;
+    case BruteForceResult::kLose:
+      return BruteForceResult::kWin;
+    case BruteForceResult::kNil:
+      return BruteForceResult::kInf;
     default:
       throw std::runtime_error(
-          std::format("Bad outcome {}", static_cast<int>(outcome)));
+          std::format("Bad result {}", static_cast<int>(result)));
   }
+}
+
+Metric Board::Reverse(Metric metric) {
+  return Metric(Reverse(metric.result), metric.depth);
 }
 
 const char *DebugImage(Board::ThreeKind c) {
@@ -700,8 +709,12 @@ std::string DebugImage(BruteForceResult c) {
       return "Draw";
     case BruteForceResult::kLose:
       return "Lose";
+    case BruteForceResult::kNil:
+      return "Nil";
+    case BruteForceResult::kInf:
+      return "Inf";
     default:
-      return "Unknown Value";
+      return std::format("Unknown Value ({})", static_cast<int>(c));
   }
 }
 
@@ -720,6 +733,11 @@ std::string DebugImage(std::vector<std::size_t> v) {
     oss << item;
   }
   return oss.str();
+}
+
+std::ostream &operator<<(std::ostream &os, const Metric &metric) {
+  os << "(" << DebugImage(metric.result) << ", d=" << metric.depth << ")";
+  return os;
 }
 
 std::string Board::image() const {
@@ -824,9 +842,30 @@ Board::Position Board::ParsePosition(const std::string image) {
 
 Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                                             double budget) {
+  // The returned result.
+  BoardMask best_move = 0;
+
   std::size_t report_count = 0;
 
   struct StackFrame {
+    StackFrame(Position position, unsigned int whose_turn
+#define ALPHA_BETA 1
+#if ALPHA_BETA
+               ,
+               Metric cutoff, Metric accum
+#endif
+               )
+        : position(position),
+          whose_turn(whose_turn),
+          best(BruteForceResult::kNil, 0)  // Negative infinity.
+#if ALPHA_BETA
+          ,
+          cutoff(cutoff),
+          accum(accum)
+#endif
+    {
+    }
+
     // Input parameters
     double budget;
     Position position;
@@ -838,14 +877,21 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     std::size_t num_moves;
     std::size_t current_move = 0;
 
-    std::size_t best_move;
-
     Metric best;
-    Metric alpha;
-    Metric beta;
+
+#if ALPHA_BETA
+    // Otherwise known as the alpha and beta in Alpha-beta pruning.
+    // Alpha-beta pruning significantly speeds up the search algorithm.
+    // We use a variation on the classic algorithm found at
+    // https://en.wikipedia.org/wiki/Alpha-beta_pruning#Pseudocode
+    // so that we can use the same code to evaluate the position of
+    // either player.
+    Metric cutoff;
+    Metric accum;
+#endif
   };
   std::vector<StackFrame> restack;  // The recursion stack.
-                                    //
+
   const auto stack_trace = [&restack]() {
     std::cout << "**** Stack Trace ****\n";
     for (std::size_t i = 0; i < restack.size(); ++i) {
@@ -864,35 +910,30 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     Board::Position new_pos = position;
     unsigned int new_whose_turn = GetWhoseTurn(new_pos);
     double new_budget = budget;
-    Metric new_alpha;
-    Metric new_beta;
+
+#if ALPHA_BETA
+    Metric new_cutoff(BruteForceResult::kInf, 0);  // Negative infinity
+    Metric new_accum(BruteForceResult::kNil, 0);   // Positive infinity.
+#endif
 
     for (;;) {
       {
-#if 0
-        std::cout << "Player " << new_pos.WhoseTurn() << " " << "Budget "
-                  << new_budget << "\n";
-#endif
         // Evaluate new_pos, new_whose_turn, new_budget
         // If new_pos is warranted, a new stack frame is created,
         // and the input values are used to create it.
-        const auto [move, outcome] =
-            ThreeInARow2(new_pos.red_set, new_pos.yellow_set, new_whose_turn);
-#if 0
-        std::cout << "Outcome: "
-                  << Board::three_kind_image[static_cast<int>(outcome)] << "\n"
-                  << new_pos.image() << "==============================\n";
-#endif
+        const auto [move, outcome] = new_pos.ThreeInARow(new_whose_turn);
         switch (outcome) {
           case Board::ThreeKind::kNone:
           case Board::ThreeKind::kBlock: {
             if (new_budget < 1.0) {
               throw std::runtime_error(std::format("Ran out of budget"));
             }
-            restack.emplace_back();
-#if 0
-            std::cout << std::format("Level {} created\n", restack.size());
+            restack.emplace_back(new_pos, new_whose_turn
+#if ALPHA_BETA
+                                 ,
+                                 new_cutoff, new_accum
 #endif
+            );
             StackFrame &top = restack.back();
 
             // Initialize top.num_moves and top.moves.
@@ -903,25 +944,23 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
               top.num_moves = 1;
               top.moves[0] = move;
             }
-
-            // Initialize the rest of the stack frame.
-            top.position = new_pos;
             top.budget = (new_budget - 1) / top.num_moves;
-            top.whose_turn = new_whose_turn;
-            top.alpha = new_alpha;
-            top.beta = new_beta;
             goto advance_top;
           }
           case Board::ThreeKind::kWin:
           case Board::ThreeKind::kLose: {
-            // Reverse the result.
+            if (restack.empty()) {
+              return Board::BruteForceReturn4(outcome == Board::ThreeKind::kWin
+                                                  ? BruteForceResult::kWin
+                                                  : BruteForceResult::kLose,
+                                              move);
+            }
+
+            // Reverse the polarity.
             result.result = outcome == Board::ThreeKind::kWin
                                 ? BruteForceResult::kLose
                                 : BruteForceResult::kWin;
             result.depth = restack.size();
-            if (restack.empty()) {
-              return Board::BruteForceReturn4(Reverse(result.result), move);
-            }
             goto report_result;
           }
         }
@@ -934,43 +973,48 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       }
       const BoardMask move = top.moves[top.current_move - 1];
       switch (compare(result, top.best)) {
-        case 1:  // result is beter
+        case 1:  // result is better
           top.best = result;
-          top.best_move = move;
+          if (restack.size() == 1) {
+            best_move = move;
+          }
+
+          // Don't bother updating top.cutoff and top.accum if
+          // we are about the pop the stack.
+#if ALPHA_BETA
+          // We cannot apply the Alpha/Beta optimization at Level 2.
+          // If we did, we would correctly determine who wins, but
+          // at Level 1 we could produce wrong winning moves.
+          if (restack.size() > 2 && top.current_move < top.num_moves) {
+            if (compare(result, top.cutoff) >= 0) {
+              if (restack.size() == 1) {
+                throw std::runtime_error("Cutoff at level one");
+              }
+#if 0
+              std::cout << "Alpha/Beta cutoff level " << restack.size()
+                        << " result " << result << " >= cutoff " << top.cutoff
+                        << "\n";
+#endif
+              result.result = Reverse(result.result);
+              restack.pop_back();
+              ++report_count;
+              goto report_result;
+            }
+            if (compare(result, top.accum) > 0) {
+              top.accum = result;
+            }
+          }
+#endif
           break;
         case 0:  // Both are the same
-          top.best_move |= move;
+          if (restack.size() == 1) {
+            best_move |= move;
+          }
         case -1:  // top.best is better
           break;
         default:
           throw std::runtime_error("Bad compare");
       }
-#if 0
-      if (result < top.best) {
-        top.best = result;
-        top.best_depth = result_depth;
-        top.best_move = move;
-      } else if (result == top.best) {
-        switch (result) {
-          case BruteForceResult::kWin:
-            if (result_depth < top.best_depth) {
-              top.best_depth = result_depth;
-              top.best_move = move;
-            } else if (result_depth == top.best_depth) {
-              top.best_move |= move;
-            }
-            break;
-          case BruteForceResult::kLose:
-            if (result_depth > top.best_depth) {
-              top.best_depth = result_depth;
-              top.best_move = move;
-            } else if (result_depth == top.best_depth) {
-              top.best_move |= move;
-            }
-            break;
-        }
-      }
-#endif
       // Fall into advance_top.
     }
 
@@ -986,15 +1030,13 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           top.best.depth = restack.size();
         }
         if (restack.size() == 1) {
-          return Board::BruteForceReturn4(top.best.result, top.best_move);
+          return Board::BruteForceReturn4(top.best.result, best_move);
         }
+
         result.result = Reverse(top.best.result);
         result.depth = top.best.depth;
         restack.pop_back();
         ++report_count;
-#if 0
-        std::cout << report_count << ": Report end of iter\n";
-#endif
         goto report_result;
       }
 
@@ -1025,9 +1067,11 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         std::runtime_error("whose turn?");
       }
       new_budget = top.budget;
-#if 0
-      std::cout << "At level " << restack.size() << " current_move bumped to "
-                << top.current_move << "\n";
+
+#if ALPHA_BETA
+      // Swap cutoff and accum
+      new_cutoff = Reverse(top.accum);
+      new_accum = Reverse(top.cutoff);
 #endif
     }
     }

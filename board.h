@@ -11,15 +11,22 @@
 #include <cstdint>
 #include <format>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
 
 // The type returned by BruteForce.
-// kNil is never returned, but is used internally.
-enum class BruteForceResult { kWin, kDraw, kLose, kNil };
+// kInf and kNil are never returned, but are used internally.
+enum class BruteForceResult { kInf, kWin, kDraw, kLose, kNil };
 
 struct Metric {
+  // Any valid metric is better than this:
+  Metric() : result(BruteForceResult::kNil), depth(0) {}
+
+  Metric(BruteForceResult result, std::size_t depth)
+      : result(result), depth(depth) {}
+
   // Determines which Metric is better.
   // Like a spaceship operator, but the result can be used in a switch
   // statement.
@@ -54,9 +61,11 @@ struct Metric {
     return -1;  // rhs is better
   }
 
-  BruteForceResult result = BruteForceResult::kNil;
-  std::size_t depth = 0;
+  BruteForceResult result;
+  std::size_t depth;
 };
+
+std::ostream& operator<<(std::ostream& os, const Metric& metric);
 
 class Board {
  public:
@@ -81,12 +90,28 @@ class Board {
 
   enum class Outcome { kContested, kRedWins, kYellowWins, kDraw };
 
+  enum class ThreeKind {
+    kNone,   // Nobody has a supported three-in-a-row. column is irrelevant.
+    kWin,    // I have a supported three-in-a-row. column is the winning move.
+    kBlock,  // column required to block opponants's supported three-in-a-row.
+    kLose,   // Opponent has two supported three-in-a-rows. I will lose,
+             // because I can only block one.
+  };
+
   struct Position {
     Position& operator=(const Position&) = default;
 
     void set_value(std::size_t row, std::size_t col, unsigned int value);
     Board::Outcome IsGameOver() const;
     unsigned int WhoseTurn() const;
+
+    // Searches for supported three-in-a-rows. "Supported" means the fourth
+    // square is empty, and the square below it is occupied or nonexistent.
+    // If found, returns the moves needed to make or block four-in-a-row.
+    // Returns zero for the move if no supported three-in-a-rows are found.
+    std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
+        unsigned int me) const;
+
     std::string image() const;
 
     // Each of these is 48 bits, numbered rowwise.
@@ -151,15 +176,6 @@ class Board {
   // depending on the number of tokens.
   int heuristic() const;
 
-  enum class ThreeKind {
-    kNone,   // Nobody has a supported three-in-a-row. column is irrelevant.
-    kWin,    // I have a supported three-in-a-row. column is the winning move.
-    kBlock,  // column required to block opponants's supported three-in-a-row.
-    kLose,   // Opponent has two supported three-in-a-rows. I will lose,
-             // because I can only block one.
-  };
-  static const char* const three_kind_image[4];
-
   // Calls visit with each of the four-in-a-row coordinate possibilities.
   static void combos(
       std::function<void(Coord a, Coord b, Coord c, Coord d)> visit);
@@ -196,13 +212,6 @@ class Board {
 
   std::size_t LegalMoves(std::size_t (&moves)[Board::kNumCols]);
 
-  // Searches for supported three-in-a-rows. "Supported" means the fourth
-  // square is empty, and the square below it is occupied or nonexistent.
-  // If found, returns the mask needed to make or block four-in-a-row.
-  // Returns zero for the move if no supported three-in-a-rows are found.
-  static std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow2(
-      Board::BoardMask red_set, Board::BoardMask yellow_set, std::uint8_t me);
-
   struct BruteForceReturn4 {
     BruteForceReturn4(BruteForceResult result, BoardMask move)
         : result(result), move(move) {}
@@ -223,7 +232,8 @@ class Board {
   int alpha_beta_helper(std::size_t depth, int alpha, int beta,
                         bool maximizing);
 
-  static BruteForceResult Reverse(BruteForceResult outcome);
+  static BruteForceResult Reverse(BruteForceResult result);
+  static Metric Reverse(Metric metric);
 
   static constexpr std::size_t kNumValues = kNumRows * kNumCols;
   static constexpr std::size_t kBitsPerValue = 2;
