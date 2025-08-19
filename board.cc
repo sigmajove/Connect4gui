@@ -94,13 +94,12 @@ Board::PartialWins Board::ComputePartialWins() {
     v.reserve(16);
   }
   // Invert all_winning_masks.
-  // For every 1 bit in all_winning_masks[i], append an i into the vector
+  // For every 1 bit in all_winning_masks[i], append the mask into the vector
   // corresponding to the position of that bit.
-  for (std::size_t i = 0; i < all_winning_masks.size(); ++i) {
-    const BoardMask mask = all_winning_masks[i];
+  for (const BoardMask mask : all_winning_masks) {
     for (std::size_t j = 0; j < result.size(); ++j) {
       if ((mask >> j) & 1) {
-        result[j].push_back(i);
+        result[j].push_back(mask);
       }
     }
   }
@@ -112,45 +111,6 @@ const Board::PartialWins all_partial_wins = Board::ComputePartialWins();
 void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
   const std::size_t position = Index(row, col);
   const BoardMask mask = OneMask(position);
-#if 0
-  const std::vector<std::size_t> &needs_adjust = all_partial_wins[position];
-
-  const std::size_t current_value =
-      (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
-
-  if (current_value == value) {
-    // No change.
-    return;
-  }
-  if (current_value == 0 && value == 1) {
-    // Increase red counts
-    for (const std::size_t i : needs_adjust) {
-      const auto increased = ++partial_wins_[i].red_count;
-      assert(increased <= 4);
-    }
-  } else if (current_value == 0 && value == 2) {
-    // Increase yellow counts
-    for (const std::size_t i : needs_adjust) {
-      const auto increased = ++partial_wins_[i].yellow_count;
-      assert(increased <= 4);
-    }
-  } else if (current_value == 1 && value == 0) {
-    // Decrease red counts
-    for (const std::size_t i : needs_adjust) {
-      const auto old_value = partial_wins_[i].red_count--;
-      assert(old_value > 0);
-    }
-  } else if (current_value == 2 && value == 0) {
-    // Decrease yellow counts
-    for (const std::size_t i : needs_adjust) {
-      const auto old_value = partial_wins_[i].yellow_count--;
-      assert(old_value > 0);
-    }
-  } else {
-    throw std::runtime_error(
-        std::format("Invalid transition {} to {}", current_value, value));
-  }
-#endif
 
   BoardMask unmask = ~mask;
   switch (value) {
@@ -173,25 +133,6 @@ void Board::set_value(std::size_t row, std::size_t col, unsigned int value) {
     default:
       throw std::runtime_error(std::format("Bad value {}", value));
   }
-}
-
-// Checks the consistency of partial_wins against the current
-// board position.
-void Board::CheckPartialWins() {
-#if 0
-  for (std::size_t i = 0; i < kNumFours; ++i) {
-    const BoardMask mask = all_winning_masks[i];
-    const int red_count = std::popcount(mask & red_set_);
-    const int yellow_count = std::popcount(mask & yellow_set_);
-    if (partial_wins_[i].red_count != red_count ||
-        partial_wins_[i].yellow_count != yellow_count) {
-      throw std::runtime_error(
-          std::format("Invalid count at {}: expected {}, {}, actual {} {}", i,
-                      red_count, yellow_count, partial_wins_[i].red_count,
-                      partial_wins_[i].yellow_count));
-    }
-  }
-#endif
 }
 
 unsigned int Board::get_value(std::size_t row, std::size_t col) const {
@@ -294,13 +235,6 @@ void Board::clear() {
   // The computer goes second unless the human presses the "Go Second"
   // button.
   favorite_ = 2;
-
-#if 0
-  for (PieceCounts &count : partial_wins_) {
-    count.red_count = 0;
-    count.yellow_count = 0;
-  }
-#endif
 }
 
 // Compute a mask with a 1 set in every row of the lefmost column.
@@ -463,8 +397,6 @@ std::string DumpMask(Board::BoardMask mask) {
   return stream.str();
 }
 
-// Finds all occurences of three of four bits in board.
-// Add the mask for the missing fourth bit into the result.
 Board::BoardMask FindTriples(const Board::BoardMask &board) {
   Board::BoardMask result = 0;
   for (const Board::BoardMask mask : all_winning_masks) {
@@ -477,24 +409,43 @@ Board::BoardMask FindTriples(const Board::BoardMask &board) {
   return result;
 }
 
+// Finds all occurences of three of four bits in board.
+// Add the mask for the missing fourth bit into the result.
+Board::BoardMask FindNewTriples(const Board::BoardMask &board,
+                                Board::BoardMask move) {
+  if (std::popcount(move) != 1) {
+    throw std::runtime_error("Bad move in FindNewTriples");
+  }
+  const std::size_t offset = std::countr_zero(move);
+  if (offset >= Board::kNumRows * Board::kNumCols) {
+    throw std::runtime_error("Too big move in FindNewTriples");
+  }
+  Board::BoardMask result = 0;
+  for (const Board::BoardMask mask : all_partial_wins[offset]) {
+    const Board::BoardMask four_bits = mask & board;
+    if (std::popcount(four_bits) == 3) {
+      // Find the hole in the three bits.
+      result |= OneMask(std::countr_zero(four_bits ^ mask));
+    }
+  }
+  return result;
+}
+
 std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
-    unsigned int me) const {
-  BoardMask my_bits, his_bits;
+    unsigned int me, BoardMask red_triples, BoardMask yellow_triples) const {
+  BoardMask my_triples, his_triples;
   switch (me) {
     case 1:
-      my_bits = red_set;
-      his_bits = yellow_set;
+      my_triples = red_triples;
+      his_triples = yellow_triples;
       break;
     case 2:
-      my_bits = yellow_set;
-      his_bits = red_set;
+      my_triples = yellow_triples;
+      his_triples = red_triples;
       break;
     default:
       throw std::runtime_error(std::format("Bad value {}", me));
   }
-
-  unsigned int other_count = 0;  // The number of supported three-in-a-kinds
-                                 // my opponent has.
 
   // A single bitmap indicating where the empty spaces on the board are.
   const BoardMask empty_squares = ~(red_set | yellow_set);
@@ -510,18 +461,22 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
   }
 
   // See if I can win.
-  if (const BoardMask winners = FindTriples(my_bits) & legal_moves;
-      winners != 0) {
+  if (const BoardMask winners = my_triples & legal_moves; winners != 0) {
     return std::make_pair(winners, Board::ThreeKind::kWin);
   }
 
-  const BoardMask blocks = FindTriples(his_bits) & legal_moves;
+  const BoardMask blocks = his_triples & legal_moves;
   if (blocks == 0) {
     return std::make_pair(0, Board::ThreeKind::kNone);
   }
   return std::make_pair(blocks, std::popcount(blocks) == 1
                                     ? Board::ThreeKind::kBlock
                                     : Board::ThreeKind::kLose);
+}
+
+std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
+    unsigned int me) const {
+  return ThreeInARow(me, FindTriples(red_set), FindTriples(yellow_set));
 }
 
 int Board::heuristic() const {
@@ -779,6 +734,22 @@ std::string Board::Position::image() const {
   return stream.str();
 }
 
+std::string MaskMap(Board::BoardMask mask) {
+  std::ostringstream stream;
+  for (std::size_t r = 0; r < Board::kNumRows; ++r) {
+    const size_t row = Board::kNumRows - 1 - r;
+    for (std::size_t col = 0; col < Board::kNumCols; ++col) {
+      if (mask & OneMask(Index(row, col))) {
+        stream << "*";
+      } else {
+        stream << ".";
+      }
+    }
+    stream << '\n';
+  }
+  return stream.str();
+}
+
 void Board::Position::set_value(std::size_t row, std::size_t col,
                                 unsigned int value) {
   const BoardMask mask = OneMask(Index(row, col));
@@ -848,7 +819,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
   std::size_t report_count = 0;
 
   struct StackFrame {
-    StackFrame(Position position, unsigned int whose_turn
+    StackFrame(Position position, unsigned int whose_turn,
+               BoardMask red_triples, BoardMask yellow_triples
 #define ALPHA_BETA 1
 #if ALPHA_BETA
                ,
@@ -857,7 +829,9 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                )
         : position(position),
           whose_turn(whose_turn),
-          best(BruteForceResult::kNil, 0)  // Negative infinity.
+          best(BruteForceResult::kNil, 0),  // Negative infinity.
+          red_triples(red_triples),
+          yellow_triples(yellow_triples)
 #if ALPHA_BETA
           ,
           cutoff(cutoff),
@@ -879,6 +853,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
     Metric best;
 
+    BoardMask red_triples, yellow_triples;
+
 #if ALPHA_BETA
     // Otherwise known as the alpha and beta in Alpha-beta pruning.
     // Alpha-beta pruning significantly speeds up the search algorithm.
@@ -886,8 +862,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     // https://en.wikipedia.org/wiki/Alpha-beta_pruning#Pseudocode
     // so that we can use the same code to evaluate the position of
     // either player.
-    Metric cutoff;
-    Metric accum;
+    Metric cutoff, accum;
 #endif
   };
   std::vector<StackFrame> restack;  // The recursion stack.
@@ -910,6 +885,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     Board::Position new_pos = position;
     unsigned int new_whose_turn = GetWhoseTurn(new_pos);
     double new_budget = budget;
+    BoardMask new_red_triples = FindTriples(position.red_set);
+    BoardMask new_yellow_triples = FindTriples(position.yellow_set);
 
 #if ALPHA_BETA
     Metric new_cutoff(BruteForceResult::kInf, 0);  // Negative infinity
@@ -921,14 +898,16 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         // Evaluate new_pos, new_whose_turn, new_budget
         // If new_pos is warranted, a new stack frame is created,
         // and the input values are used to create it.
-        const auto [move, outcome] = new_pos.ThreeInARow(new_whose_turn);
+        const auto [move, outcome] = new_pos.ThreeInARow(
+            new_whose_turn, new_red_triples, new_yellow_triples);
         switch (outcome) {
           case Board::ThreeKind::kNone:
           case Board::ThreeKind::kBlock: {
             if (new_budget < 1.0) {
               throw std::runtime_error(std::format("Ran out of budget"));
             }
-            restack.emplace_back(new_pos, new_whose_turn
+            restack.emplace_back(new_pos, new_whose_turn, new_red_triples,
+                                 new_yellow_triples
 #if ALPHA_BETA
                                  ,
                                  new_cutoff, new_accum
@@ -1055,16 +1034,21 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                 << MaskImage(move) << "\nBoard:\n"
                 << new_pos.image();
 #endif
-
       if (top.whose_turn == 1) {
         new_pos.red_set |= move;
+        new_red_triples =
+            top.red_triples | FindNewTriples(new_pos.red_set, move);
+        new_yellow_triples = top.yellow_triples;
       } else {
         new_pos.yellow_set |= move;
+        new_yellow_triples =
+            top.yellow_triples | FindNewTriples(new_pos.yellow_set, move);
+        new_red_triples = top.red_triples;
       }
 
       new_whose_turn = 3 - top.whose_turn;
       if (new_whose_turn != new_pos.WhoseTurn()) {
-        std::runtime_error("whose turn?");
+        throw std::runtime_error("whose turn?");
       }
       new_budget = top.budget;
 

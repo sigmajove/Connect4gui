@@ -110,6 +110,10 @@ class Board {
     // If found, returns the moves needed to make or block four-in-a-row.
     // Returns zero for the move if no supported three-in-a-rows are found.
     std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
+        unsigned int me, BoardMask red_triples, BoardMask yellow_triples) const;
+
+    // Overload that computes the red_triples and yellow_triples.
+    std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
         unsigned int me) const;
 
     std::string image() const;
@@ -200,9 +204,6 @@ class Board {
   // Computes SomeName at program startup.
   static PartialWins ComputePartialWins();
 
-  // For debugging. Tests the incremental maintenance of partial wins.
-  void CheckPartialWins();
-
   // Returns a string representation of the board.
   std::string image() const;
 
@@ -269,6 +270,10 @@ class Board {
   // The payer we want to win.
   unsigned int favorite_ = 1;
 };
+
+// Finds all occurences of three of four bits in board.
+// Add the mask for the missing fourth bit into the result.
+Board::BoardMask FindTriples(const Board::BoardMask& board);
 
 // Returns a mask with a single bit set.
 inline Board::BoardMask OneMask(std::size_t index) {
