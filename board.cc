@@ -248,6 +248,25 @@ Board::BoardMask Board::CreateColumnMask() {
 
 const Board::BoardMask column_mask = Board::CreateColumnMask();
 
+static std::array<Board::BoardMask, Board::kNumCols> CreateOrderedColumns() {
+  // Alpha-beta pruning is faster if we are lucky enough to evaluate
+  // a move with a good Metric first. This will result in a high accum,
+  // which turns into a low cutoff at the next level, which means
+  // evaluating fewer subtrees.
+  //
+  // We use the crude heuristic that moves in the center of the board
+  // tend to be better than moves at the edges.
+  constexpr std::array shuffle = {3, 2, 4, 1, 5, 0, 6};
+  std::array<Board::BoardMask, Board::kNumCols> result;
+  for (std::size_t i = 0; i < result.size(); ++i) {
+    result[i] = column_mask << shuffle[i];
+  }
+  return result;
+}
+
+const std::array<Board::BoardMask, Board::kNumCols> ordered_columns =
+    CreateOrderedColumns();
+
 void Board::push(std::size_t column) {
   const int bit_pos =
       std::countr_zero(~(red_set_ | yellow_set_) & (column_mask << column));
@@ -269,22 +288,6 @@ void Board::push(std::size_t column) {
     yellow_set_ |= mask;
   }
   whose_turn_ = 3 - whose_turn_;
-}
-
-// Returns the number of legal moves, and writes them into moves.
-// More efficient than returning a vector, and it matters.
-// The moves are are represented by bit masks.
-std::size_t LegalMovesM(Board::BoardMask red_set, Board::BoardMask yellow_set,
-                        Board::BoardMask (&moves)[Board::kNumCols]) {
-  const Board::BoardMask candidates = ~(red_set | yellow_set);
-  std::size_t count = 0;
-  for (std::size_t col = 0; col < Board::kNumCols; ++col) {
-    const int bit_pos = std::countr_zero(candidates & (column_mask << col));
-    if (bit_pos < 64) {
-      moves[count++] = OneMask(bit_pos);
-    }
-  }
-  return count;
 }
 
 void Board::pop() {
@@ -912,9 +915,16 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
           // Initialize top.num_moves and top.moves.
           if (move == 0) {
-            top.num_moves =
-                LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
+            // Extract the legal moves from new_legal_moves.
+            top.num_moves = 0;
+            for (BoardMask col : ordered_columns) {
+              const BoardMask legal_move = new_legal_moves & col;
+              if (legal_move != 0) {
+                top.moves[top.num_moves++] = legal_move;
+              }
+            }
           } else {
+            // The only move is the forced block.
             top.num_moves = 1;
             top.moves[0] = move;
           }
