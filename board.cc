@@ -424,22 +424,7 @@ Board::BoardMask FindNewTriples(const Board::BoardMask &board,
   return result;
 }
 
-std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
-    unsigned int me, BoardMask red_triples, BoardMask yellow_triples) const {
-  BoardMask my_triples, his_triples;
-  switch (me) {
-    case 1:
-      my_triples = red_triples;
-      his_triples = yellow_triples;
-      break;
-    case 2:
-      my_triples = yellow_triples;
-      his_triples = red_triples;
-      break;
-    default:
-      throw std::runtime_error(std::format("Bad value {}", me));
-  }
-
+Board::BoardMask Board::Position::LegalMoves() const {
   // A single bitmap indicating where the empty spaces on the board are.
   const BoardMask empty_squares = ~(red_set | yellow_set);
 
@@ -453,12 +438,33 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
     }
   }
 
+  return legal_moves;
+}
+
+std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
+    unsigned int me, Board::BoardMask red_triples,
+    Board::BoardMask yellow_triples, Board::BoardMask legal_moves) {
+  Board::BoardMask my_triples;
+  Board::BoardMask his_triples;
+  switch (me) {
+    case 1:
+      my_triples = red_triples;
+      his_triples = yellow_triples;
+      break;
+    case 2:
+      my_triples = yellow_triples;
+      his_triples = red_triples;
+      break;
+    default:
+      throw std::runtime_error(std::format("Bad value {}", me));
+  }
+
   // See if I can win.
-  if (const BoardMask winners = my_triples & legal_moves; winners != 0) {
+  if (const Board::BoardMask winners = my_triples & legal_moves; winners != 0) {
     return std::make_pair(winners, Board::ThreeKind::kWin);
   }
 
-  const BoardMask blocks = his_triples & legal_moves;
+  const Board::BoardMask blocks = his_triples & legal_moves;
   if (blocks == 0) {
     return std::make_pair(0, Board::ThreeKind::kNone);
   }
@@ -469,7 +475,8 @@ std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
 
 std::pair<Board::BoardMask, Board::ThreeKind> Board::Position::ThreeInARow(
     unsigned int me) const {
-  return ThreeInARow(me, FindTriples(red_set), FindTriples(yellow_set));
+  return ::ThreeInARow(me, FindTriples(red_set), FindTriples(yellow_set),
+                       LegalMoves());
 }
 
 int Board::heuristic() const {
@@ -792,10 +799,11 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
   struct StackFrame {
     StackFrame(Position position, unsigned int whose_turn,
-               BoardMask red_triples, BoardMask yellow_triples, Metric cutoff,
-               Metric accum)
+               BoardMask legal_moves, BoardMask red_triples,
+               BoardMask yellow_triples, Metric cutoff, Metric accum)
         : position(position),
           whose_turn(whose_turn),
+          legal_moves(legal_moves),
           best(BruteForceResult::kNil, 0),  // Negative infinity.
           red_triples(red_triples),
           yellow_triples(yellow_triples),
@@ -808,6 +816,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
     // Redundant with position.
     unsigned int whose_turn;  // 1 or 2
+
+    BoardMask legal_moves;
 
     BoardMask moves[kNumCols];
     std::size_t num_moves;
@@ -844,6 +854,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     // They should not be referenced elsewhere.
     Board::Position new_pos = position;
     unsigned int new_whose_turn = GetWhoseTurn(new_pos);
+    BoardMask new_legal_moves = position.LegalMoves();
     double new_budget = budget;
     BoardMask new_red_triples = FindTriples(position.red_set);
     BoardMask new_yellow_triples = FindTriples(position.yellow_set);
@@ -856,46 +867,70 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         // Evaluate new_pos, new_whose_turn, new_budget
         // If new_pos is warranted, a new stack frame is created,
         // and the input values are used to create it.
-        const auto [move, outcome] = new_pos.ThreeInARow(
-            new_whose_turn, new_red_triples, new_yellow_triples);
-        switch (outcome) {
-          case Board::ThreeKind::kNone:
-          case Board::ThreeKind::kBlock: {
-            if (new_budget < 1.0) {
-              throw std::runtime_error(std::format("Ran out of budget"));
-            }
-            restack.emplace_back(new_pos, new_whose_turn, new_red_triples,
-                                 new_yellow_triples, new_cutoff, new_accum);
-            StackFrame &top = restack.back();
 
-            // Initialize top.num_moves and top.moves.
-            if (outcome == Board::ThreeKind::kNone) {
-              top.num_moves =
-                  LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
-            } else {
-              top.num_moves = 1;
-              top.moves[0] = move;
-            }
-            top.budget = (new_budget - 1) / top.num_moves;
-            goto advance_top;
-          }
-          case Board::ThreeKind::kWin:
-          case Board::ThreeKind::kLose: {
-            if (restack.empty()) {
-              return Board::BruteForceReturn4(outcome == Board::ThreeKind::kWin
-                                                  ? BruteForceResult::kWin
-                                                  : BruteForceResult::kLose,
-                                              move);
-            }
-
-            // Reverse the polarity.
-            result.result = outcome == Board::ThreeKind::kWin
-                                ? BruteForceResult::kLose
-                                : BruteForceResult::kWin;
-            result.depth = restack.size();
-            goto report_result;
-          }
+        Board::BoardMask my_triples;
+        Board::BoardMask his_triples;
+        switch (new_whose_turn) {
+          case 1:
+            my_triples = new_red_triples;
+            his_triples = new_yellow_triples;
+            break;
+          case 2:
+            my_triples = new_yellow_triples;
+            his_triples = new_red_triples;
+            break;
+          default:
+            throw std::runtime_error(
+                std::format("Bad value {}", new_whose_turn));
         }
+
+        // See if I can win.
+        if (const BoardMask winning_move = my_triples & new_legal_moves;
+            winning_move != 0) {
+          if (restack.empty()) {
+            return Board::BruteForceReturn4(BruteForceResult::kWin,
+                                            winning_move);
+          }
+
+          // Reverse the polarity.
+          result.result = BruteForceResult::kLose;
+          result.depth = restack.size();
+          goto report_result;
+        }
+
+        // See if I have a forced block or loss
+        const BoardMask move = his_triples & new_legal_moves;
+        if (move == 0 || std::popcount(move) == 1) {
+          // None or Block
+          if (new_budget < 1.0) {
+            throw std::runtime_error(std::format("Ran out of budget"));
+          }
+          restack.emplace_back(new_pos, new_whose_turn, new_legal_moves,
+                               new_red_triples, new_yellow_triples, new_cutoff,
+                               new_accum);
+          StackFrame &top = restack.back();
+
+          // Initialize top.num_moves and top.moves.
+          if (move == 0) {
+            top.num_moves =
+                LegalMovesM(new_pos.red_set, new_pos.yellow_set, top.moves);
+          } else {
+            top.num_moves = 1;
+            top.moves[0] = move;
+          }
+          top.budget = (new_budget - 1) / top.num_moves;
+          goto advance_top;
+        }
+
+        // Lose
+        if (restack.empty()) {
+          return Board::BruteForceReturn4(BruteForceResult::kLose, move);
+        }
+
+        // Reverse the polarity.
+        result.result = BruteForceResult::kWin;
+        result.depth = restack.size();
+        // Fall into report_result
       }
 
     report_result: {
@@ -911,8 +946,8 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             best_move = move;
           }
 
-          // Don't bother updating top.cutoff and top.accum if
-          // we are about the pop the stack.
+          // Don't bother updating top.cutoff and top.accum if we are about
+          // to pop the stack.
 
           // We cannot apply the Alpha/Beta optimization at Level 2.
           // If we did, we would correctly determine who wins, but
@@ -992,6 +1027,14 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         new_yellow_triples =
             top.yellow_triples | FindNewTriples(new_pos.yellow_set, move);
         new_red_triples = top.red_triples;
+      }
+
+      // Update legal_moves to reflect the move just made.
+      static constexpr BoardMask kMoveLimit = OneMask(kBoardSize);
+      new_legal_moves = top.legal_moves & ~(move);
+      if (const BoardMask next_move = move << kNumCols;
+          next_move < kMoveLimit) {
+        new_legal_moves |= next_move;
       }
 
       new_whose_turn = 3 - top.whose_turn;

@@ -744,10 +744,8 @@ std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(
     Board::Position &p) {
   std::vector<std::size_t> result;
   for (;;) {
-    std::cout << "====\n" << p.image() << "====\n";
     const Board::Outcome outcome = p.IsGameOver();
     if (outcome != Board::Outcome::kContested) {
-      std::cout << "Outcome: " << DebugImage(outcome) << "\n";
       return std::make_pair(outcome, result);
     }
     auto [winner, move] = Board::BruteForce4(p, 1e18);
@@ -764,7 +762,6 @@ std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(
         p.yellow_set |= mask;
         break;
     }
-    std::cout << me << " moves in " << MaskImage(mask) << "\n";
     result.push_back(offset % Board::kNumCols);
   }
 }

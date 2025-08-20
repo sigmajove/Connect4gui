@@ -106,12 +106,8 @@ class Board {
     Board::Outcome IsGameOver() const;
     unsigned int WhoseTurn() const;
 
-    // Searches for supported three-in-a-rows. "Supported" means the fourth
-    // square is empty, and the square below it is occupied or nonexistent.
-    // If found, returns the moves needed to make or block four-in-a-row.
-    // Returns zero for the move if no supported three-in-a-rows are found.
-    std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
-        unsigned int me, BoardMask red_triples, BoardMask yellow_triples) const;
+    // Returns all the places where a piece can be legally played.
+    BoardMask LegalMoves() const;
 
     // Overload that computes the red_triples and yellow_triples.
     std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
@@ -200,7 +196,7 @@ class Board {
 
   // A map from the board position to the winning_masks that include that
   // position.
-  using PartialWins = std::array<std::vector<std::size_t>, kNumRows * kNumCols>;
+  using PartialWins = std::array<std::vector<std::size_t>, kBoardSize>;
 
   // Computes SomeName at program startup.
   static PartialWins ComputePartialWins();
@@ -244,12 +240,6 @@ class Board {
 
   static Metric Reverse(Metric metric);
 
-  static constexpr std::size_t kNumValues = kNumRows * kNumCols;
-  static constexpr std::size_t kBitsPerValue = 2;
-  static constexpr std::size_t kValuesPerByte = 8 / kBitsPerValue;
-  static constexpr std::size_t kNumBytes =
-      (kNumValues + kValuesPerByte - 1) / kValuesPerByte;
-
   // Each of these is 48 bits, numbered rowwise.
   // "red" is player 1 and "yellow" is player 2.
   BoardMask red_set_ = 0;
@@ -260,10 +250,6 @@ class Board {
     std::uint8_t red_count;
     std::uint8_t yellow_count;
   };
-
-#if 0
-  std::array<PieceCounts, kNumFours> partial_wins_;
-#endif
 
   struct Data {
     BoardMask red_set;
@@ -283,8 +269,16 @@ class Board {
 // Add the mask for the missing fourth bit into the result.
 Board::BoardMask FindTriples(const Board::BoardMask& board);
 
+// Searches for supported three-in-a-rows. "Supported" means the fourth
+// square is empty, and the square below it is occupied or nonexistent.
+// If found, returns the moves needed to make or block four-in-a-row.
+// Returns zero for the move if no supported three-in-a-rows are found.
+std::pair<Board::BoardMask, Board::ThreeKind> ThreeInARow(
+    unsigned int me, Board::BoardMask red_triples,
+    Board::BoardMask yellow_triples, Board::BoardMask legal_moves);
+
 // Returns a mask with a single bit set.
-inline Board::BoardMask OneMask(std::size_t index) {
+constexpr Board::BoardMask OneMask(std::size_t index) {
   return UINT64_C(1) << index;
 }
 
