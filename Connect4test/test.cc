@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -909,6 +910,21 @@ TEST(BruteForce, RedWinsNow) {
   EXPECT_EQ(MaskImage(move), "Row 0 Col 1, Row 0 Col 5");
 }
 
+TEST(BruteForce, HyperExpensive) {
+  Board::Position p = Board::ParsePosition(R"(
+.......
+...1...
+...2...
+...12..
+...21..
+...12..
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, move] = Board::BruteForce4(p, 1e25);
+  EXPECT_EQ(DebugImage(result), "Win");
+  EXPECT_EQ(MaskImage(move), "Row 3 Col 4");
+}
+
 TEST(BruteForce, Simple) {
   Board::Position p = Board::ParsePosition(R"(
 ....211
@@ -966,19 +982,21 @@ std::vector<CacheData> cache_data = {
     {3323231, 2323232, 44345}, {3323232, 2323231, 44341}};
 
 TEST(Cache, Basic) {
-  Cache<std::size_t> cache(2, 20);
+  Cache<std::optional<std::size_t>> cache(2, 20);
 
   for (std::size_t i = 0; i < cache_data.size(); ++i) {
     {
       const auto [key1, key2, value] = cache_data[i];
       EXPECT_FALSE(cache.Lookup(key1, key2).has_value());
-      cache.Insert(key1, key2, value);
+      std::optional<std::size_t> *p = cache.GetOrAdd(key1, key2);
+      EXPECT_FALSE(p->has_value());
+      *p = value;
     }
     for (std::size_t j = 0; j <= i; j++) {
       const auto [key1, key2, value] = cache_data[j];
-      const auto xxx = cache.Lookup(key1, key2);
-      EXPECT_TRUE(xxx.has_value());
-      EXPECT_EQ(*xxx, value);
+      std::optional<std::size_t> *p = cache.GetOrAdd(key1, key2);
+      EXPECT_TRUE(p->has_value());
+      EXPECT_EQ(*p, value);
     }
     for (std::size_t j = i + 1; j < cache_data.size(); j++) {
       const auto [key1, key2, value] = cache_data[j];
@@ -991,7 +1009,7 @@ TEST(Cache, BasicLru) {
   Cache<std::size_t> cache(11, 20);
   std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
   for (std::uint64_t k = 0; k < 10; ++k) {
-    cache.Insert(k, 100, k + 1000);
+    *cache.GetOrAdd(k, 100) = k + 1000;
     cache.LruOrder();
     keys.emplace_back(k, 100);
   }
@@ -1032,7 +1050,7 @@ TEST(Cache, BasicLru) {
 TEST(Cache, Dropoff) {
   Cache<std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 10; ++k) {
-    cache.Insert(k, 100, k + 1000);
+    *cache.GetOrAdd(k, 100) = k + 1000;
   }
   // Check that (0, 100) has dropped out.
   {
@@ -1047,7 +1065,7 @@ TEST(Cache, Dropoff) {
 TEST(Cache, ShuffleAndDrop) {
   Cache<std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 9; ++k) {
-    cache.Insert(k, 100, k + 1000);
+    *cache.GetOrAdd(k, 100) = k + 1000;
   }
   {
     const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
@@ -1069,7 +1087,7 @@ TEST(Cache, ShuffleAndDrop) {
         {5, 100}, {4, 100}, {3, 100}, {1, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
   }
-  cache.Insert(9, 100, 1009);
+  *cache.GetOrAdd(9, 100) = 1009;
   {
     const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
         {9, 100}, {0, 100}, {2, 100}, {8, 100}, {7, 100},

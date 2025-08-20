@@ -85,12 +85,17 @@ class Cache {
     return std::nullopt;
   }
 
-  void Insert(std::uint64_t key1, std::uint64_t key2, Value value) {
+  // Finds or Creates an entry for key1, key2.
+  // Returns a pointer to the value associated with key1, key2.
+  // If newly created, it will be the default value for Value.
+  // Warning: Do not hold the returned pointer past subsequent
+  // calls to GetOrAdd.
+  Value *GetOrAdd(std::uint64_t key1, std::uint64_t key2) {
     Node **pred = &(table_[HashKeys(key1, key2)]);
     Node *p = *pred;
     while (p != nullptr) {
       if (p->key1 == key1 && p->key2 == key2) {
-        throw std::runtime_error(std::format("Key was inserted at {}", p->id));
+        return &(p->value);
       }
       pred = &(p->bucket_next);
       p = *pred;
@@ -128,11 +133,11 @@ class Cache {
 
     n->key1 = key1;
     n->key2 = key2;
-    n->value = value;
     n->bucket_next = nullptr;
     n->bucket_prev = pred;
     n->id = ++node_counter_;
     *pred = n;
+    return &(n->value);
   }
 
   std::size_t size() const { return num_nodes_; }
