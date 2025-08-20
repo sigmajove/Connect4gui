@@ -274,49 +274,59 @@ TEST_F(ParseTest, Parse8) {
       2, 9);
 };
 
-TEST(LegalMoves, NoMoves) {
-  Board b = parse(R"(
-1122112
+TEST(LegalMoves, SomeMoves) {
+  const Board::Position p = Board::ParsePosition(R"(
+1..2...
 1..1...
 2..2...
 2..11..
 1..122.
-2..2122
+21.2122
 )");
-  std::size_t moves[Board::kNumCols];
-  const std::size_t n = b.LegalMoves(moves);
-  EXPECT_EQ(n, 0);
+  EXPECT_EQ(MaskMap(p.LegalMoves()), R"(.......
+.......
+....*..
+.....*.
+.*....*
+..*....
+)");
 };
 
-TEST(LegalMoves, ThreeMoves) {
-  Board b = parse(R"(
-1..2.12
-1..1...
-2..2...
-2..11..
-1..122.
-2..2122
+TEST(LegalMoves, NoMoves) {
+  const Board::Position p = Board::ParsePosition(R"(
+.......
+.......
+.......
+.......
+.......
+.......
 )");
-  std::size_t moves[Board::kNumCols];
-  const std::size_t n = b.LegalMoves(moves);
-  EXPECT_EQ(n, 3);
-  EXPECT_EQ(moves[0], 1);
-  EXPECT_EQ(moves[1], 2);
-  EXPECT_EQ(moves[2], 4);
+  EXPECT_EQ(MaskMap(p.LegalMoves()), R"(.......
+.......
+.......
+.......
+.......
+*******
+)");
 };
 
 TEST(LegalMoves, AllMoves) {
-  Board b;
-  std::size_t moves[Board::kNumCols];
-  const std::size_t n = b.LegalMoves(moves);
-  EXPECT_EQ(n, 7);
-  EXPECT_EQ(moves[0], 0);
-  EXPECT_EQ(moves[1], 1);
-  EXPECT_EQ(moves[2], 2);
-  EXPECT_EQ(moves[3], 3);
-  EXPECT_EQ(moves[4], 4);
-  EXPECT_EQ(moves[5], 5);
-  EXPECT_EQ(moves[6], 6);
+  const Board::Position p = Board::ParsePosition(R"(
+1212122
+2121212
+1212121
+1212121
+2121212
+1212121
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  EXPECT_EQ(MaskMap(p.LegalMoves()), R"(.......
+.......
+.......
+.......
+.......
+.......
+)");
 };
 
 TEST(Game, PushPop) {

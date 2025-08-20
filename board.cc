@@ -140,6 +140,7 @@ unsigned int Board::get_value(std::size_t row, std::size_t col) const {
   return (((yellow_set_ & mask) != 0) << 1) | ((red_set_ & mask) != 0);
 }
 
+#if 0
 // Returns the number of legal moves, and writes them into moves.
 // More efficient than returning a vector, and it matters.
 std::size_t Board::LegalMoves(std::size_t (&moves)[Board::kNumCols]) {
@@ -154,6 +155,7 @@ std::size_t Board::LegalMoves(std::size_t (&moves)[Board::kNumCols]) {
   }
   return count;
 }
+#endif
 
 std::vector<std::size_t> Board::legal_moves() const {
   std::vector<std::size_t> result;

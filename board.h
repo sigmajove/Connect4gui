@@ -208,8 +208,6 @@ class Board {
     return std::format("{:011x}-{:011x}", red_set_, yellow_set_);
   }
 
-  std::size_t LegalMoves(std::size_t (&moves)[Board::kNumCols]);
-
   struct BruteForceReturn4 {
     BruteForceReturn4(BruteForceResult result, BoardMask move)
         : result(result), move(move) {}
@@ -283,6 +281,7 @@ constexpr Board::BoardMask OneMask(std::size_t index) {
 }
 
 std::string MaskImage(Board::BoardMask mask);
+std::string MaskMap(Board::BoardMask mask);
 
 // Returns the leftmost column in the mask, 999 if the mask is empty.
 std::size_t MaskColumn(Board::BoardMask mask);
