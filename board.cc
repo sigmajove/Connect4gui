@@ -29,6 +29,14 @@ class nullstream : public std::ostream {
   nullbuf nbuf;
 };
 
+// Note on std::popcount.
+//
+// I believe it compiles to the x86 POPCNT instruction.
+// Which means it is fast, but perhaps not as fast as you might expect.
+// A more portable alternative would be to break the input into three pieces,
+// count the bits in each piece using table lookup, and sum the results.
+// This is approach is about three times slower than using POPCNT.
+
 std::string MaskImage(Board::BoardMask mask) {
   std::ostringstream stream;
   bool needs_comma = false;
