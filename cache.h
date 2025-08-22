@@ -11,7 +11,13 @@
 #include <utility>
 #include <vector>
 
-template <class Value>
+// Mixes the 64 bits in x by multiplying by the fractional part of the
+// Golden Ratio.
+inline std::uint64_t GoldenHash(std::uint64_t x) {
+  return 0x9e3779b97f4a7c13 * x;
+}
+
+template <class Key, class Value>
 class Cache {
  public:
   Cache(std::size_t table_size, std::size_t max_nodes)
@@ -57,10 +63,10 @@ class Cache {
     }
   }
 
-  std::optional<Value> Lookup(std::uint64_t key1, std::uint64_t key2) {
-    Node *p = table_[HashKeys(key1, key2)];
+  std::optional<Value> Lookup(Key key) {
+    Node *p = table_[HashKeys(key)];
     while (p != nullptr) {
-      if (p->key1 == key1 && p->key2 == key2) {
+      if (p->key == key) {
         if (lru_tail_ == p) {
           lru_tail_ = p->lru_prev;
         } else {
@@ -85,16 +91,16 @@ class Cache {
     return std::nullopt;
   }
 
-  // Finds or Creates an entry for key1, key2.
+  // Finds or Creates an entry for key
   // Returns a pointer to the value associated with key1, key2.
   // If newly created, it will be the default value for Value.
   // Warning: Do not hold the returned pointer past subsequent
   // calls to GetOrAdd.
-  Value *GetOrAdd(std::uint64_t key1, std::uint64_t key2) {
-    Node **pred = &(table_[HashKeys(key1, key2)]);
+  Value *GetOrAdd(Key key) {
+    Node **pred = &(table_[HashKeys(key)]);
     Node *p = *pred;
     while (p != nullptr) {
-      if (p->key1 == key1 && p->key2 == key2) {
+      if (p->key == key) {
         return &(p->value);
       }
       pred = &(p->bucket_next);
@@ -131,8 +137,7 @@ class Cache {
       }
     }
 
-    n->key1 = key1;
-    n->key2 = key2;
+    n->key = key;
     n->bucket_next = nullptr;
     n->bucket_prev = pred;
     n->id = ++node_counter_;
@@ -143,8 +148,8 @@ class Cache {
   std::size_t size() const { return num_nodes_; }
 
   // For debugging
-  std::vector<std::pair<std::uint64_t, std::uint64_t>> LruOrder() {
-    std::vector<std::pair<std::uint64_t, std::uint64_t>> result;
+  std::vector<Key> LruOrder() {
+    std::vector<Key> result;
     result.reserve(num_nodes_);
     if (lru_tail_ != nullptr) {
       const Node *prev = lru_tail_;
@@ -153,8 +158,8 @@ class Cache {
         if (p->lru_prev != prev) {
           throw std::runtime_error("malformed list");
         }
-        result.emplace_back(p->key1, p->key2);
-        if (ReadonlyLookup(p->key1, p->key2) != p) {
+        result.emplace_back(p->key);
+        if (ReadonlyLookup(p->key) != p) {
           throw std::runtime_error("item missing from table");
         }
 
@@ -175,8 +180,7 @@ class Cache {
 
  private:
   struct Node {
-    std::uint64_t key1;
-    std::uint64_t key2;
+    Key key;
     Value value;
 
     Node *bucket_next;
@@ -189,23 +193,14 @@ class Cache {
     std::size_t id;
   };
 
-  // Mixes the 64 bits in x by multiplying by the fractional part of the
-  // Golden Ratio.
-  std::uint64_t GoldenHash(std::uint64_t x) { return 0x9e3779b97f4a7c13 * x; }
-
   // Returns a value in the range [0, table_size).
-  std::size_t HashKeys(std::uint64_t key1, std::uint64_t key2) {
-    return (GoldenHash((GoldenHash(key1) & 0xFFFFFFFF00000000) |
-                       (GoldenHash(key2) >> 32)) >>
-            hash_shift_) %
-           table_size_;
-  }
+  std::size_t HashKeys(Key key) { return key.hash() % table_size_; }
 
   // Searches for the key without modifying the LRU list.
-  Node *ReadonlyLookup(std::uint64_t key1, std::uint64_t key2) {
-    Node *p = table_[HashKeys(key1, key2)];
+  Node *ReadonlyLookup(Key key) {
+    Node *p = table_[HashKeys(key)];
     while (p != nullptr) {
-      if (p->key1 == key1 && p->key2 == key2) {
+      if (p->key == key) {
         break;
       }
       p = p->bucket_next;

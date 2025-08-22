@@ -431,7 +431,7 @@ Board::BoardMask FindNewTriples(const Board::BoardMask &board,
     const Board::BoardMask four_bits = mask & board;
     if (std::popcount(four_bits) == 3) {
       // Find the hole in the three bits.
-      result |= OneMask(std::countr_zero(four_bits ^ mask));
+      result |= (four_bits ^ mask);
     }
   }
   return result;
@@ -849,15 +849,69 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     Metric cutoff, accum;
   };
   std::vector<StackFrame> restack;  // The recursion stack.
+  restack.reserve(kBoardSize);
 
   const auto stack_trace = [&restack]() {
     std::cout << "**** Stack Trace ****\n";
     for (std::size_t i = 0; i < restack.size(); ++i) {
       const StackFrame &top = restack[i];
-      std::cout << std::format("Level {} Player {}\n{}-------------\n", i,
-                               top.whose_turn, top.position.image());
+      std::cout << std::format("Level {} {}/{}\n{}-------------\n", i,
+                               top.current_move, top.num_moves,
+                               top.position.image());
     }
   };
+
+  const auto stack_path = [&restack]() -> std::string {
+    std::ostringstream stream;
+    bool needs_dot = false;
+    for (const auto &frame : restack) {
+      if (needs_dot) {
+        stream << ".";
+      } else {
+        needs_dot = true;
+      }
+      stream << frame.current_move;
+    }
+    return stream.str();
+  };
+
+#define CACHING 1
+
+#if CACHING
+  struct CacheKey {
+    CacheKey() {}
+    CacheKey(Position position, Metric cutoff, Metric accum)
+        : position(position), cutoff(cutoff), accum(accum) {}
+
+    bool operator==(const CacheKey &) const = default;
+    CacheKey &operator=(const CacheKey &) = default;
+
+    // The hash of CacheKey used by the hash table in Cache
+    std::uint64_t hash() {
+      const std::uint64_t bits18 =
+          static_cast<std::uint64_t>(cutoff.result) ^ (cutoff.depth << 3) ^
+          (static_cast<std::uint64_t>(accum.result) << 9) ^ (accum.depth << 12);
+
+      const std::uint64_t bits46 =
+          GoldenHash((GoldenHash(position.red_set) & 0xFFFFFFFF00000000) |
+                     (GoldenHash(position.yellow_set) >> 32));
+      return GoldenHash((bits46 >> 18) | (bits18 << 46)) >> 25;
+    }
+
+    Position position;
+    Metric cutoff;
+    Metric accum;
+  };
+
+  Cache<CacheKey, Metric> cache(120000, 100000);
+  std::size_t cache_count = 0;
+  std::size_t cache_hits = 0;
+
+  const auto cache_stats = [&cache, &cache_count, &cache_hits]() {
+    std::cout << std::format("Cached {} values\nFinal size {}\nCache hits {}\n",
+                             cache_count, cache.size(), cache_hits);
+  };
+#endif
 
   try {
     // This variable is read at report_result.
@@ -876,6 +930,24 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     Metric new_accum(BruteForceResult::kNil, 0);   // Positive infinity.
 
     for (;;) {
+#if CACHING
+      {
+        // See if the answer is already in the cache.
+        // If so, proceed directly to report_result.
+        // Note that report_result expects a reversed metric.
+        // So when we cache values, we alway cache the metric after
+        // it has been reversed.
+        const auto found =
+            cache.Lookup(CacheKey(new_pos, new_cutoff, new_accum));
+
+        if (found.has_value()) {
+          ++cache_hits;
+          result = *found;
+          goto report_result;
+        }
+      }
+#endif
+
       {
         // Evaluate new_pos, new_whose_turn, new_budget
         // If new_pos is warranted, a new stack frame is created,
@@ -908,6 +980,11 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           // Reverse the polarity.
           result.result = BruteForceResult::kLose;
           result.depth = restack.size();
+
+#if CACHING
+          ++cache_count;
+          *cache.GetOrAdd(CacheKey(new_pos, new_cutoff, new_accum)) = result;
+#endif
           goto report_result;
         }
 
@@ -950,6 +1027,10 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         // Reverse the polarity.
         result.result = BruteForceResult::kWin;
         result.depth = restack.size();
+#if CACHING
+        ++cache_count;
+        *cache.GetOrAdd(CacheKey(new_pos, new_cutoff, new_accum)) = result;
+#endif
         // Fall into report_result
       }
 
@@ -992,6 +1073,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           if (restack.size() == 1) {
             best_move |= move;
           }
+          break;
         case -1:  // top.best is better
           break;
         default:
@@ -1015,8 +1097,12 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           return Board::BruteForceReturn4(top.best.result, best_move);
         }
 
-        result.result = Reverse(top.best.result);
-        result.depth = top.best.depth;
+        result = Reverse(top.best);
+#if CACHING
+        ++cache_count;
+        *cache.GetOrAdd(CacheKey(top.position, top.cutoff, top.accum)) = result;
+#endif
+
         restack.pop_back();
         ++report_count;
         goto report_result;

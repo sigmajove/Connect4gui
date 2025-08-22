@@ -24,6 +24,7 @@ enum class BruteForceResult { kInf, kWin, kDraw, kLose, kNil };
 struct Metric {
   // Any valid metric is better than this:
   Metric() : result(BruteForceResult::kNil), depth(0) {}
+  bool operator==(const Metric &) const = default;
 
   Metric(BruteForceResult result, std::size_t depth)
       : result(result), depth(depth) {}
@@ -100,6 +101,7 @@ class Board {
   };
 
   struct Position {
+    bool operator==(const Position&) const = default;
     Position& operator=(const Position&) = default;
 
     void set_value(std::size_t row, std::size_t col, unsigned int value);

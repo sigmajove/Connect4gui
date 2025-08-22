@@ -880,6 +880,21 @@ TEST(BruteForce, ExpensiveTest) {
   EXPECT_EQ(path, expected);
 }
 
+TEST(BruteForce, TempTest) {
+  Board::Position p = Board::ParsePosition(R"(
+...1...
+2..2...
+11.2.1.
+12.1.2.
+112221.
+2111222
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  EXPECT_EQ(DebugImage(result), "Win");
+  EXPECT_EQ(MaskImage(move), "Row 4 Col 1, Row 4 Col 5, Row 5 Col 0");
+}
+
 TEST(BruteForce, Draw) {
   Board::Position p = Board::ParsePosition(R"(
 1211212
@@ -981,53 +996,67 @@ std::vector<CacheData> cache_data = {
     {2323232, 2323231, 34341}, {3323232, 2323232, 44343},
     {3323231, 2323232, 44345}, {3323232, 2323231, 44341}};
 
+struct CacheKey {
+  CacheKey() : key1(0), key2(0) {}
+  CacheKey(std::uint64_t key1, std::uint64_t key2) : key1(key1), key2(key2) {}
+
+  bool operator==(const CacheKey &) const = default;
+
+  std::size_t hash() {
+    return GoldenHash((GoldenHash(key1) & 0xFFFFFFFF00000000) |
+                      (GoldenHash(key2) >> 32));
+  }
+  std::uint64_t key1;
+  std::uint64_t key2;
+};
+
 TEST(Cache, Basic) {
-  Cache<std::optional<std::size_t>> cache(2, 20);
+  Cache<CacheKey, std::optional<std::size_t>> cache(2, 20);
 
   for (std::size_t i = 0; i < cache_data.size(); ++i) {
     {
       const auto [key1, key2, value] = cache_data[i];
-      EXPECT_FALSE(cache.Lookup(key1, key2).has_value());
-      std::optional<std::size_t> *p = cache.GetOrAdd(key1, key2);
+      EXPECT_FALSE(cache.Lookup(CacheKey(key1, key2)).has_value());
+      std::optional<std::size_t> *p = cache.GetOrAdd(CacheKey(key1, key2));
       EXPECT_FALSE(p->has_value());
       *p = value;
     }
     for (std::size_t j = 0; j <= i; j++) {
       const auto [key1, key2, value] = cache_data[j];
-      std::optional<std::size_t> *p = cache.GetOrAdd(key1, key2);
+      std::optional<std::size_t> *p = cache.GetOrAdd(CacheKey(key1, key2));
       EXPECT_TRUE(p->has_value());
       EXPECT_EQ(*p, value);
     }
     for (std::size_t j = i + 1; j < cache_data.size(); j++) {
       const auto [key1, key2, value] = cache_data[j];
-      EXPECT_FALSE(cache.Lookup(key1, key2).has_value());
+      EXPECT_FALSE(cache.Lookup(CacheKey(key1, key2)).has_value());
     }
   }
 }
 
 TEST(Cache, BasicLru) {
-  Cache<std::size_t> cache(11, 20);
-  std::vector<std::pair<std::uint64_t, std::uint64_t>> keys;
+  Cache<CacheKey, std::size_t> cache(11, 20);
+  std::vector<CacheKey> keys;
   for (std::uint64_t k = 0; k < 10; ++k) {
-    *cache.GetOrAdd(k, 100) = k + 1000;
+    *cache.GetOrAdd(CacheKey(k, 100)) = k + 1000;
     cache.LruOrder();
     keys.emplace_back(k, 100);
   }
   std::reverse(keys.begin(), keys.end());
   EXPECT_EQ(cache.LruOrder(), keys);
   {
-    const auto x = cache.Lookup(5, 100);
+    const auto x = cache.Lookup(CacheKey(5, 100));
     ASSERT_TRUE(x.has_value());
     EXPECT_EQ(*x, 1005);
   }
-  const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+  const std::vector<CacheKey> expected = {
       {5, 100}, {9, 100}, {8, 100}, {7, 100}, {6, 100},
       {4, 100}, {3, 100}, {2, 100}, {1, 100}, {0, 100}};
   EXPECT_EQ(cache.LruOrder(), expected);
 
   {
     // Do it again.
-    const auto x = cache.Lookup(5, 100);
+    const auto x = cache.Lookup(CacheKey(5, 100));
     ASSERT_TRUE(x.has_value());
     EXPECT_EQ(*x, 1005);
   }
@@ -1036,86 +1065,86 @@ TEST(Cache, BasicLru) {
   EXPECT_EQ(cache.LruOrder(), expected);
 
   {
-    const auto x = cache.Lookup(0, 100);
+    const auto x = cache.Lookup(CacheKey(0, 100));
     ASSERT_TRUE(x.has_value());
     EXPECT_EQ(*x, 1000);
   }
 
-  const std::vector<std::pair<std::uint64_t, std::uint64_t>> reorder = {
+  const std::vector<CacheKey> reorder = {
       {0, 100}, {5, 100}, {9, 100}, {8, 100}, {7, 100},
       {6, 100}, {4, 100}, {3, 100}, {2, 100}, {1, 100}};
   EXPECT_EQ(cache.LruOrder(), reorder);
 }
 
 TEST(Cache, Dropoff) {
-  Cache<std::size_t> cache(11, 9);
+  Cache<CacheKey, std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 10; ++k) {
-    *cache.GetOrAdd(k, 100) = k + 1000;
+    *cache.GetOrAdd(CacheKey(k, 100)) = k + 1000;
   }
   // Check that (0, 100) has dropped out.
   {
-    const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+    const std::vector<CacheKey> expected = {
         {9, 100}, {8, 100}, {7, 100}, {6, 100}, {5, 100},
         {4, 100}, {3, 100}, {2, 100}, {1, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
-    EXPECT_FALSE(cache.Lookup(0, 100).has_value());
+    EXPECT_FALSE(cache.Lookup(CacheKey(0, 100)).has_value());
   }
 }
 
 TEST(Cache, ShuffleAndDrop) {
-  Cache<std::size_t> cache(11, 9);
+  Cache<CacheKey, std::size_t> cache(11, 9);
   for (std::uint64_t k = 0; k < 9; ++k) {
-    *cache.GetOrAdd(k, 100) = k + 1000;
+    *cache.GetOrAdd(CacheKey(k, 100)) = k + 1000;
   }
   {
-    const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+    const std::vector<CacheKey> expected = {
         {8, 100}, {7, 100}, {6, 100}, {5, 100}, {4, 100},
         {3, 100}, {2, 100}, {1, 100}, {0, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
   }
-  cache.Lookup(2, 100);
+  cache.Lookup(CacheKey(2, 100));
   {
-    const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+    const std::vector<CacheKey> expected = {
         {2, 100}, {8, 100}, {7, 100}, {6, 100}, {5, 100},
         {4, 100}, {3, 100}, {1, 100}, {0, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
   }
-  cache.Lookup(0, 100);
+  cache.Lookup(CacheKey(0, 100));
   {
-    const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+    const std::vector<CacheKey> expected = {
         {0, 100}, {2, 100}, {8, 100}, {7, 100}, {6, 100},
         {5, 100}, {4, 100}, {3, 100}, {1, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
   }
-  *cache.GetOrAdd(9, 100) = 1009;
+  *cache.GetOrAdd(CacheKey(9, 100)) = 1009;
   {
-    const std::vector<std::pair<std::uint64_t, std::uint64_t>> expected = {
+    const std::vector<CacheKey> expected = {
         {9, 100}, {0, 100}, {2, 100}, {8, 100}, {7, 100},
         {6, 100}, {5, 100}, {4, 100}, {3, 100}};
     EXPECT_EQ(cache.LruOrder(), expected);
-    EXPECT_FALSE(cache.Lookup(1, 100).has_value());
+    EXPECT_FALSE(cache.Lookup(CacheKey(1, 100)).has_value());
   }
 }
 
 TEST(Cache, TableSizes) {
-  Cache<std::size_t> a(1, 10);
+  Cache<CacheKey, std::size_t> a(1, 10);
   EXPECT_EQ(a.hash_shift(), 64);
 
-  Cache<std::size_t> b(2, 10);
+  Cache<CacheKey, std::size_t> b(2, 10);
   EXPECT_EQ(b.hash_shift(), 63);
 
-  Cache<std::size_t> c(3, 10);
+  Cache<CacheKey, std::size_t> c(3, 10);
   EXPECT_EQ(c.hash_shift(), 62);
 
-  Cache<std::size_t> d(4, 10);
+  Cache<CacheKey, std::size_t> d(4, 10);
   EXPECT_EQ(d.hash_shift(), 62);
 
-  Cache<std::size_t> e(5, 10);
+  Cache<CacheKey, std::size_t> e(5, 10);
   EXPECT_EQ(e.hash_shift(), 61);
 
-  Cache<std::size_t> f(64, 10);
+  Cache<CacheKey, std::size_t> f(64, 10);
   EXPECT_EQ(f.hash_shift(), 58);
 
-  Cache<std::size_t> g(65, 10);
+  Cache<CacheKey, std::size_t> g(65, 10);
   EXPECT_EQ(g.hash_shift(), 57);
 }
