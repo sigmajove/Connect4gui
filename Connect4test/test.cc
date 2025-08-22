@@ -632,7 +632,7 @@ TEST(ThreeInRow, WinOne) {
   const auto result = p.ThreeInARow(1);
   EXPECT_EQ(result.first, BuildMask(0, 2));
   EXPECT_EQ(result.second, Board::ThreeKind::kWin);
-  const auto [outcome, move] = Board::BruteForce4(p, 1e18);
+  const auto [outcome, move] = Board::BruteForce(p);
   EXPECT_EQ(move, BuildMask(0, 2));
   EXPECT_EQ(outcome, BruteForceResult::kWin);
 }
@@ -663,7 +663,7 @@ TEST(ThreeInRow, WinTwo) {
   const auto result = b.ThreeInARow(2);
   EXPECT_EQ(result.first, BuildMask(4, 4));
   EXPECT_EQ(result.second, Board::ThreeKind::kWin);
-  const auto [outcome, move] = Board::BruteForce4(b, 1e18);
+  const auto [outcome, move] = Board::BruteForce(b);
   EXPECT_EQ(move, BuildMask(4, 4));
   EXPECT_EQ(outcome, BruteForceResult::kWin);
 }
@@ -708,7 +708,7 @@ TEST(ThreeInRow, LoseTwo) {
   const auto result = b.ThreeInARow(2);
   EXPECT_EQ(result.first, BuildMask(0, 2) | BuildMask(3, 4));
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
-  const auto [outcome, move] = Board::BruteForce4(b, 1e18);
+  const auto [outcome, move] = Board::BruteForce(b);
   EXPECT_EQ(move, BuildMask(0, 2) | BuildMask(3, 4));
   EXPECT_EQ(outcome, BruteForceResult::kLose);
 }
@@ -739,7 +739,7 @@ TEST(ThreeInRow, HorizontalThree) {
   const auto result = b.ThreeInARow(2);
   EXPECT_EQ(result.first, BuildMask(1, 0) | BuildMask(1, 4));
   EXPECT_EQ(result.second, Board::ThreeKind::kLose);
-  const auto [outcome, move] = Board::BruteForce4(b, 1e18);
+  const auto [outcome, move] = Board::BruteForce(b);
   EXPECT_EQ(move, BuildMask(1, 0) | BuildMask(1, 4));
   EXPECT_EQ(outcome, BruteForceResult::kLose);
 }
@@ -759,7 +759,7 @@ std::pair<Board::Outcome, std::vector<std::size_t>> PlaySelfTest(
     if (outcome != Board::Outcome::kContested) {
       return std::make_pair(outcome, result);
     }
-    auto [winner, move] = Board::BruteForce4(p, 1e18);
+    auto [winner, move] = Board::BruteForce(p);
 
     // Choose one of the moves returned (the one with the smallest row).
     const int offset = std::countr_zero(move);
@@ -890,7 +890,7 @@ TEST(BruteForce, TempTest) {
 2111222
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Win");
   EXPECT_EQ(MaskImage(move), "Row 4 Col 1, Row 4 Col 5, Row 5 Col 0");
 }
@@ -905,7 +905,7 @@ TEST(BruteForce, Draw) {
 2112112
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Draw");
   EXPECT_EQ(move, 0);
 }
@@ -920,12 +920,13 @@ TEST(BruteForce, RedWinsNow) {
 ..111..
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Win");
   EXPECT_EQ(MaskImage(move), "Row 0 Col 1, Row 0 Col 5");
 }
 
 TEST(BruteForce, HyperExpensive) {
+  // This test take about a half an hour to run.
   Board::Position p = Board::ParsePosition(R"(
 .......
 ...1...
@@ -935,9 +936,25 @@ TEST(BruteForce, HyperExpensive) {
 ...12..
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e25);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Win");
   EXPECT_EQ(MaskImage(move), "Row 3 Col 4");
+}
+
+TEST(BruteForce, CurrentLimit) {
+  // This test runs in about 20 sec.
+  Board::Position p = Board::ParsePosition(R"(
+.......
+...1...
+..122..
+..211.2
+..122.1
+..211.2
+)");
+  EXPECT_EQ(p.WhoseTurn(), 1);
+  const auto [result, move] = Board::BruteForce(p);
+  EXPECT_EQ(DebugImage(result), "Win");
+  EXPECT_EQ(MaskImage(move), "Row 4 Col 4");
 }
 
 TEST(BruteForce, Simple) {
@@ -950,7 +967,7 @@ TEST(BruteForce, Simple) {
 1121122
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e12);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Lose");
   EXPECT_EQ(MaskImage(move), "Row 1 Col 1, Row 4 Col 0");
 }
@@ -965,7 +982,7 @@ TEST(BruteForce, YellowWins) {
 1112212
 )");
   EXPECT_EQ(p.WhoseTurn(), 2);
-  const auto [result, move] = Board::BruteForce4(p, 1e13);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Win");
   EXPECT_EQ(MaskImage(move), "Row 2 Col 2");
 }
@@ -980,7 +997,7 @@ TEST(BruteForce, OneMore4) {
 1112122
 )");
   EXPECT_EQ(p.WhoseTurn(), 1);
-  const auto [result, move] = Board::BruteForce4(p, 1e18);
+  const auto [result, move] = Board::BruteForce(p);
   EXPECT_EQ(DebugImage(result), "Lose");
   EXPECT_EQ(MaskImage(move), "Row 1 Col 2");
 }

@@ -803,12 +803,9 @@ Board::Position Board::ParsePosition(const std::string image) {
   return b;
 }
 
-Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
-                                            double budget) {
+Board::BruteForceReturn4 Board::BruteForce(Board::Position position) {
   // The returned result.
   BoardMask best_move = 0;
-
-  std::size_t report_count = 0;
 
   struct StackFrame {
     StackFrame(Position position, unsigned int whose_turn,
@@ -823,8 +820,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
           cutoff(cutoff),
           accum(accum) {}
 
-    // Input parameters
-    double budget;
+    // Input parameter
     Position position;
 
     // Redundant with position.
@@ -922,12 +918,16 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
     Board::Position new_pos = position;
     unsigned int new_whose_turn = GetWhoseTurn(new_pos);
     BoardMask new_legal_moves = position.LegalMoves();
-    double new_budget = budget;
     BoardMask new_red_triples = FindTriples(position.red_set);
     BoardMask new_yellow_triples = FindTriples(position.yellow_set);
 
     Metric new_cutoff(BruteForceResult::kInf, 0);  // Negative infinity
     Metric new_accum(BruteForceResult::kNil, 0);   // Positive infinity.
+
+    // Used to report progress (during development).
+    std::size_t timer = 0;
+    static constexpr std::size_t kBlipTime = 100000000;
+    //                        max 18446744073709551615
 
     for (;;) {
 #if CACHING
@@ -949,7 +949,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 #endif
 
       {
-        // Evaluate new_pos, new_whose_turn, new_budget
+        // Evaluate new_pos and new_whose_turn.
         // If new_pos is warranted, a new stack frame is created,
         // and the input values are used to create it.
 
@@ -992,9 +992,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
         const BoardMask move = his_triples & new_legal_moves;
         if (move == 0 || std::popcount(move) == 1) {
           // None or Block
-          if (new_budget < 1.0) {
-            throw std::runtime_error(std::format("Ran out of budget"));
-          }
           restack.emplace_back(new_pos, new_whose_turn, new_legal_moves,
                                new_red_triples, new_yellow_triples, new_cutoff,
                                new_accum);
@@ -1015,7 +1012,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
             top.num_moves = 1;
             top.moves[0] = move;
           }
-          top.budget = (new_budget - 1) / top.num_moves;
           goto advance_top;
         }
 
@@ -1061,7 +1057,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 
               result.result = Reverse(result.result);
               restack.pop_back();
-              ++report_count;
               goto report_result;
             }
             if (compare(result, top.accum) > 0) {
@@ -1104,7 +1099,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
 #endif
 
         restack.pop_back();
-        ++report_count;
         goto report_result;
       }
 
@@ -1112,7 +1106,7 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       const BoardMask move = top.moves[top.current_move++];
 
       // Apply the next move to to top.position to create a new board
-      // position. Initialize new_pos, new_whose_turn, and new_budget,
+      // position. Initialize new_pos, and new_whose_turn
       // so that we can loop back to evaluate this new position.
       new_pos = top.position;
       if (top.whose_turn != new_pos.WhoseTurn()) {
@@ -1123,6 +1117,13 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
                 << MaskImage(move) << "\nBoard:\n"
                 << new_pos.image();
 #endif
+      // Here is where the heavy lifting happens.
+      // Report progress so we can see how close we are to done.
+      if (++timer >= kBlipTime) {
+        std::cout << stack_path() << "\n";
+        timer = 0;
+      }
+
       if (top.whose_turn == 1) {
         new_pos.red_set |= move;
         new_red_triples =
@@ -1147,7 +1148,6 @@ Board::BruteForceReturn4 Board::BruteForce4(Board::Position position,
       if (new_whose_turn != new_pos.WhoseTurn()) {
         throw std::runtime_error("whose turn?");
       }
-      new_budget = top.budget;
 
       // Swap cutoff and accum
       new_cutoff = Reverse(top.accum);

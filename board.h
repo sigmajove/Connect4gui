@@ -222,7 +222,7 @@ class Board {
     BoardMask move;
   };
 
-  static BruteForceReturn4 BruteForce4(Board::Position position, double budget);
+  static BruteForceReturn4 BruteForce(Board::Position position);
 
  private:
   // The recursive function that performs alpha-beta minimax restricted
